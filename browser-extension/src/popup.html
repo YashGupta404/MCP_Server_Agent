@@ -24,16 +24,63 @@
       </div>
     </header>
 
-    <section id="contextPanel" class="context" hidden>
-      <div class="context__head">
-        <div class="context__meta">
-          <span class="context__badge" id="contextType">record</span>
-          <span class="context__name" id="contextName">—</span>
-        </div>
-        <button id="contextRefresh" class="btn btn--ghost btn--sm" type="button" title="Refresh related content">↻</button>
+    <section id="contextPanel" class="hec" hidden>
+      <div class="hec__bar">
+        <span class="hec__brand">Hyland Enterprise Content</span>
+        <span class="hec__live" id="contextLive" title="Connected"></span>
+        <button id="contextRefresh" class="hec__gear" type="button" title="Refresh related content" aria-label="Refresh">
+          <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="12" cy="12" r="3" />
+            <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" />
+          </svg>
+        </button>
       </div>
+
+      <div class="hec__card">
+        <div class="hec__cardText">
+          <span class="hec__badge" id="contextType">Record</span>
+          <div class="hec__id"><span class="hec__idLabel">ID:</span> <span id="contextName">—</span></div>
+          <div class="hec__desc" id="contextDesc">Related content for the record on screen.</div>
+        </div>
+        <span class="hec__cardIcon" aria-hidden="true">
+          <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.6">
+            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+            <polyline points="14 2 14 8 20 8" />
+          </svg>
+        </span>
+      </div>
+
+      <div class="hec__actions">
+        <button id="actAttach" class="hec__act hec__act--primary" type="button">Attach</button>
+        <button id="actHistory" class="hec__act" type="button">History</button>
+        <button id="actExtract" class="hec__act" type="button">Extract</button>
+      </div>
+
+      <div class="hec__tabs">
+        <button id="tabDocuments" class="hec__tab hec__tab--active" type="button">Documents</button>
+        <button id="tabMetadata" class="hec__tab" type="button">Metadata</button>
+      </div>
+
       <div class="context__status" id="contextStatus" hidden></div>
-      <ul class="doclist" id="docList"></ul>
+
+      <form id="manualForm" class="manual" hidden>
+        <input id="manualType" class="manual__input" type="text" placeholder="type (e.g. account)" autocomplete="off" />
+        <input id="manualId" class="manual__input" type="text" placeholder="record id" autocomplete="off" />
+        <button id="manualLoad" class="btn btn--send btn--sm" type="submit">Load</button>
+      </form>
+
+      <div id="docPane">
+        <button id="dropzone" class="hec__drop" type="button">
+          <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.6">
+            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+            <polyline points="14 2 14 8 20 8" />
+          </svg>
+          <span class="hec__dropText">Drag &amp; drop files or <strong>Browse Files</strong></span>
+        </button>
+        <ul class="doclist" id="docList"></ul>
+      </div>
+
+      <div id="metaPane" class="hec__meta" hidden></div>
     </section>
 
     <main id="messages" class="messages" aria-live="polite">

@@ -80,9 +80,14 @@
     return null;
   }
 
-  // Outlook: use the selected message's internet id where exposed; otherwise skip (no record).
+  // Outlook on the web: modern OWA puts the message id in the path (.../mail/.../id/<id>);
+  // older OWA used an ItemID hash/query param. Try both.
   function detectOutlook(loc) {
-    const params = new URLSearchParams(loc.hash.replace(/^#/, ""));
+    const pathMatch = loc.pathname.match(/\/id\/([^/?#]+)/i);
+    if (pathMatch) {
+      return { rawType: "email", businessObjectId: decodeURIComponent(pathMatch[1]), displayName: document.title.trim() };
+    }
+    const params = new URLSearchParams(loc.hash.replace(/^#/, "") || loc.search);
     const itemId = params.get("ItemID") || params.get("itemid");
     if (itemId) {
       return { rawType: "email", businessObjectId: itemId, displayName: document.title.trim() };
@@ -98,7 +103,7 @@
     if (/\.force\.com$|\.salesforce\.com$|\.lightning\.force\.com$/.test(host)) raw = detectSalesforce(loc);
     else if (/\.service-now\.com$/.test(host)) raw = detectServiceNow(loc);
     else if (/\.workday\.com$|\.myworkday\.com$/.test(host)) raw = detectWorkday(loc);
-    else if (/^outlook\.office(365)?\.com$/.test(host)) raw = detectOutlook(loc);
+    else if (/^outlook\.(office(365)?|live)\.com$/.test(host)) raw = detectOutlook(loc);
 
     if (!raw || !raw.businessObjectId) return null;
 

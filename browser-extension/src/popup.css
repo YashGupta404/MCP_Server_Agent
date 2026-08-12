@@ -368,97 +368,307 @@ body {
   border-radius: 999px;
 }
 
-/* ---------- context panel (content-in-context) ---------- */
-.context {
+/* ---------- Hyland Enterprise Content panel (content-in-context) ---------- */
+.hec {
   border-bottom: 1px solid var(--line);
-  background: var(--panel);
-  padding: 10px 16px;
-  max-height: 240px;
+  background: #ffffff;
+  padding: 12px 14px 14px;
+  max-height: 62%;
   overflow-y: auto;
 }
 
-.context__head {
+.hec__bar {
   display: flex;
   align-items: center;
   gap: 8px;
+  padding-bottom: 10px;
 }
 
-.context__meta {
+.hec__brand {
+  font-weight: 700;
+  font-size: 14px;
+  color: #1b2430;
+  letter-spacing: 0.2px;
+}
+
+.hec__live {
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  background: var(--ok);
+  box-shadow: 0 0 0 3px rgba(26, 127, 69, 0.14);
+}
+
+.hec__gear {
+  margin-left: auto;
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border: none;
+  border-radius: var(--radius);
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.hec__gear:hover {
+  background: var(--panel-2);
+  color: var(--text);
+}
+
+/* context card */
+.hec__card {
   display: flex;
-  align-items: center;
-  gap: 8px;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 12px;
+  border-radius: 10px;
+  background: #eef1fc;
+  border: 1px solid #dfe4fb;
+}
+
+.hec__cardText {
   min-width: 0;
   flex: 1;
 }
 
-.context__badge {
-  flex: none;
-  text-transform: uppercase;
-  font-size: 10px;
+.hec__badge {
+  display: inline-block;
+  font-size: 11px;
   font-weight: 700;
-  letter-spacing: 0.4px;
-  color: var(--accent-ink);
-  background: var(--accent);
-  padding: 2px 7px;
-  border-radius: 999px;
+  color: #3a53d0;
+  margin-bottom: 3px;
+  text-transform: capitalize;
 }
 
-.context__name {
-  font-weight: 600;
+.hec__id {
   font-size: 13px;
+  font-weight: 700;
+  color: #1b2430;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 
+.hec__idLabel {
+  color: var(--muted);
+  font-weight: 600;
+}
+
+.hec__desc {
+  margin-top: 3px;
+  font-size: 12px;
+  color: #5a6472;
+  line-height: 1.35;
+}
+
+.hec__cardIcon {
+  flex: none;
+  color: #6b76c9;
+}
+
+/* action buttons */
+.hec__actions {
+  display: flex;
+  gap: 8px;
+  margin: 12px 0;
+}
+
+.hec__act {
+  flex: 1;
+  padding: 8px 10px;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--accent);
+  background: #eef3fd;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  cursor: pointer;
+}
+
+.hec__act:hover {
+  background: #e2ebfb;
+}
+
+.hec__act--primary {
+  color: #ffffff;
+  background: var(--accent);
+}
+
+.hec__act--primary:hover {
+  background: #1a51bd;
+}
+
+/* tabs */
+.hec__tabs {
+  display: flex;
+  gap: 18px;
+  border-bottom: 1px solid var(--line);
+  margin-bottom: 12px;
+}
+
+.hec__tab {
+  padding: 8px 2px;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--muted);
+  background: transparent;
+  border: none;
+  border-bottom: 2px solid transparent;
+  margin-bottom: -1px;
+  cursor: pointer;
+}
+
+.hec__tab--active {
+  color: var(--accent);
+  border-bottom-color: var(--accent);
+}
+
+/* drag & drop */
+.hec__drop {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  padding: 18px 12px;
+  margin-bottom: 12px;
+  color: var(--muted);
+  background: #f7f8fb;
+  border: 1.5px dashed var(--line-strong);
+  border-radius: 10px;
+  cursor: pointer;
+}
+
+.hec__drop:hover,
+.hec__drop.is-drag {
+  border-color: var(--accent);
+  background: #eef3fd;
+  color: var(--accent);
+}
+
+.hec__dropText {
+  font-size: 13px;
+}
+
+.hec__drop strong {
+  color: var(--accent);
+}
+
 .context__status {
-  margin-top: 8px;
+  margin: 4px 0 10px;
   font-size: 12px;
   color: var(--muted);
 }
 
-.btn--sm {
-  padding: 2px 8px;
-  font-size: 13px;
-  line-height: 1.4;
-  min-width: 0;
+.hec__meta {
+  font-size: 12px;
+  color: var(--text);
 }
 
-.doclist {
-  list-style: none;
-  margin: 8px 0 0;
-  padding: 0;
+.hec__metaRow {
   display: flex;
-  flex-direction: column;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 7px 0;
+  border-bottom: 1px solid var(--line);
+}
+
+.hec__metaRow span:first-child {
+  color: var(--muted);
+}
+
+.hec__metaRow span:last-child {
+  font-weight: 600;
+  text-align: right;
+  word-break: break-all;
+}
+
+/* manual test entry */
+.manual {
+  display: flex;
   gap: 6px;
+  margin-bottom: 12px;
 }
 
-.doc {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 8px 10px;
+.manual__input {
+  flex: 1;
+  min-width: 0;
+  padding: 7px 9px;
+  font: inherit;
+  font-size: 12px;
+  color: var(--text);
   background: var(--bg);
   border: 1px solid var(--line);
   border-radius: var(--radius);
 }
 
-.doc__info {
+.manual__input:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+/* document rows */
+.doclist {
+  list-style: none;
+  margin: 0;
+  padding: 0;
   display: flex;
   flex-direction: column;
+}
+
+.docrow {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 11px 4px;
+  border-bottom: 1px solid var(--line);
+  cursor: pointer;
+}
+
+.docrow:hover {
+  background: #f7f8fb;
+}
+
+.docrow__icon {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 34px;
+  border-radius: 5px;
+  font-size: 9px;
+  font-weight: 700;
+  color: #ffffff;
+  background: #8a94a3;
+  letter-spacing: 0.3px;
+}
+
+.docrow__icon--pdf { background: #e0453b; }
+.docrow__icon--doc { background: #2b5bd7; }
+.docrow__icon--xls { background: #1a8f4a; }
+.docrow__icon--img { background: #b0559a; }
+.docrow__icon--txt { background: #5a6472; }
+
+.docrow__body {
   min-width: 0;
   flex: 1;
 }
 
-.doc__name {
-  font-weight: 600;
+.docrow__name {
   font-size: 13px;
+  font-weight: 600;
+  color: #1b2430;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 
-.doc__meta {
+.docrow__sub {
+  margin-top: 2px;
   font-size: 11px;
   color: var(--muted);
   white-space: nowrap;
@@ -466,6 +676,9 @@ body {
   text-overflow: ellipsis;
 }
 
-.doc__open {
+.docrow__ver {
   flex: none;
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--accent);
 }

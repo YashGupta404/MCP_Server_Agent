@@ -20,10 +20,25 @@ const els = {
   contextPanel: document.getElementById("contextPanel"),
   contextType: document.getElementById("contextType"),
   contextName: document.getElementById("contextName"),
+  contextDesc: document.getElementById("contextDesc"),
   contextStatus: document.getElementById("contextStatus"),
   contextRefresh: document.getElementById("contextRefresh"),
   docList: document.getElementById("docList"),
+  docPane: document.getElementById("docPane"),
+  metaPane: document.getElementById("metaPane"),
+  dropzone: document.getElementById("dropzone"),
+  actAttach: document.getElementById("actAttach"),
+  actHistory: document.getElementById("actHistory"),
+  actExtract: document.getElementById("actExtract"),
+  tabDocuments: document.getElementById("tabDocuments"),
+  tabMetadata: document.getElementById("tabMetadata"),
+  manualForm: document.getElementById("manualForm"),
+  manualType: document.getElementById("manualType"),
+  manualId: document.getElementById("manualId"),
 };
+
+// Documents currently shown in the panel (used by the Metadata tab).
+let loadedDocuments = [];
 
 let signedIn = false;
 /** @type {File[]} */
@@ -159,71 +174,152 @@ function setContextStatus(text) {
 }
 
 function renderDocuments(documents) {
+  loadedDocuments = documents;
   els.docList.innerHTML = "";
   if (!documents.length) {
-    setContextStatus("No content linked to this record yet — attach a document with +.");
+    setContextStatus("No content linked to this record yet — use Attach or drop a file above.");
     return;
   }
   setContextStatus(null);
 
   for (const doc of documents) {
-    const li = document.createElement("li");
-    li.className = "doc";
-
-    const info = document.createElement("div");
-    info.className = "doc__info";
-
-    const name = document.createElement("span");
-    name.className = "doc__name";
-    name.textContent = doc.name || doc.docId;
-    name.title = doc.docId;
-
-    const meta = document.createElement("span");
-    meta.className = "doc__meta";
     const attrs = doc.attributes ? Object.entries(doc.attributes) : [];
-    meta.textContent = attrs.length
-      ? attrs.map(([k, v]) => `${k}: ${v}`).join(" · ")
+    const extName = fileExtension(doc.name);
+    const kind = iconKind(extName);
+
+    const li = document.createElement("li");
+    li.className = "docrow";
+    li.title = `Open ${doc.name || doc.docId} in the Hyland viewer`;
+
+    const icon = document.createElement("span");
+    icon.className = `docrow__icon docrow__icon--${kind}`;
+    icon.textContent = (extName || "doc").slice(0, 4).toUpperCase();
+
+    const body = document.createElement("div");
+    body.className = "docrow__body";
+    const name = document.createElement("div");
+    name.className = "docrow__name";
+    name.textContent = doc.name || doc.docId;
+    const sub = document.createElement("div");
+    sub.className = "docrow__sub";
+    sub.textContent = attrs.length
+      ? attrs.map(([, v]) => v).join(" • ")
       : `docId ${doc.docId}`;
+    body.append(name, sub);
 
-    info.append(name, meta);
+    li.append(icon, body);
 
-    const open = document.createElement("button");
-    open.type = "button";
-    open.className = "btn btn--ghost btn--sm doc__open";
-    open.textContent = "Open";
-    open.title = "Open in the Hyland viewer";
-    open.addEventListener("click", async () => {
-      open.disabled = true;
-      const previous = open.textContent;
-      open.textContent = "…";
+    const version = versionOf(doc.attributes);
+    if (version) {
+      const ver = document.createElement("span");
+      ver.className = "docrow__ver";
+      ver.textContent = version;
+      li.appendChild(ver);
+    }
+
+    li.addEventListener("click", async () => {
+      li.style.opacity = "0.6";
       try {
         const url = await openInViewer(doc.docId);
         await ext.tabs.create({ url });
       } catch (err) {
         setContextStatus(`Open failed: ${err.message}`);
       } finally {
-        open.disabled = false;
-        open.textContent = previous;
+        li.style.opacity = "";
       }
     });
 
-    li.append(info, open);
     els.docList.appendChild(li);
   }
+}
+
+function fileExtension(name) {
+  const m = /\.([a-z0-9]{1,5})$/i.exec(name || "");
+  return m ? m[1].toLowerCase() : "";
+}
+
+function iconKind(ext) {
+  if (ext === "pdf") return "pdf";
+  if (["doc", "docx"].includes(ext)) return "doc";
+  if (["xls", "xlsx", "csv"].includes(ext)) return "xls";
+  if (["png", "jpg", "jpeg", "gif", "tif", "tiff", "bmp", "webp"].includes(ext)) return "img";
+  if (["txt", "rtf"].includes(ext)) return "txt";
+  return "doc";
+}
+
+function versionOf(attributes) {
+  if (!attributes) return null;
+  for (const [k, v] of Object.entries(attributes)) {
+    if (/version|rev\b|\bver\b/i.test(k) && v) return /^v/i.test(v) ? v : `v${v}`;
+  }
+  return null;
+}
+
+function renderMetadata() {
+  els.metaPane.innerHTML = "";
+  const rows = [];
+  if (currentContext) {
+    rows.push(["Type", currentContext.businessObjectType]);
+    rows.push(["Record ID", currentContext.businessObjectId]);
+  }
+  rows.push(["Documents", String(loadedDocuments.length)]);
+  for (const doc of loadedDocuments) {
+    const attrs = doc.attributes ? Object.entries(doc.attributes) : [];
+    rows.push([doc.name || doc.docId, attrs.length ? attrs.map(([k, v]) => `${k}: ${v}`).join(", ") : doc.docId]);
+  }
+  for (const [k, v] of rows) {
+    const row = document.createElement("div");
+    row.className = "hec__metaRow";
+    const a = document.createElement("span");
+    a.textContent = k;
+    const b = document.createElement("span");
+    b.textContent = v;
+    row.append(a, b);
+    els.metaPane.appendChild(row);
+  }
+}
+
+function selectTab(tab) {
+  const docs = tab === "documents";
+  els.tabDocuments.classList.toggle("hec__tab--active", docs);
+  els.tabMetadata.classList.toggle("hec__tab--active", !docs);
+  els.docPane.hidden = !docs;
+  els.metaPane.hidden = docs;
+  if (!docs) renderMetadata();
 }
 
 async function loadContextPanel() {
   currentContext = signedIn ? await getActiveContext() : null;
 
-  if (!currentContext) {
+  if (!signedIn) {
     els.contextPanel.hidden = true;
     els.docList.innerHTML = "";
     return;
   }
 
+  // Signed in but the active tab isn't a supported record page (or is a chrome:// page).
+  // Keep the panel visible with a hint + a manual entry so the feature is discoverable/testable.
+  if (!currentContext) {
+    els.contextPanel.hidden = false;
+    selectTab("documents");
+    els.contextType.textContent = "No record";
+    els.contextName.textContent = "—";
+    els.contextDesc.textContent = "Open a record page, or preview a UCEB record below.";
+    els.docList.innerHTML = "";
+    loadedDocuments = [];
+    els.manualForm.hidden = false;
+    setContextStatus(
+      "Open a Salesforce / ServiceNow / Workday / Outlook record in this tab and press the refresh icon — or enter a UCEB record below to preview its content."
+    );
+    return;
+  }
+
   els.contextPanel.hidden = false;
+  els.manualForm.hidden = true;
+  selectTab("documents");
   els.contextType.textContent = currentContext.businessObjectType;
   els.contextName.textContent = currentContext.displayName || currentContext.businessObjectId;
+  els.contextDesc.textContent = describeContext(currentContext);
   els.docList.innerHTML = "";
   setContextStatus("Loading related content…");
 
@@ -234,6 +330,77 @@ async function loadContextPanel() {
     setContextStatus(`Couldn't load related content: ${err.message}`);
   }
 }
+
+function describeContext(ctx) {
+  const src = ctx.source || "the current system";
+  return `A specific ${ctx.businessObjectType} record's content, stored in the CIC Workspace via ${src}.`;
+}
+
+// ---- panel actions (Attach / History / Extract / tabs / drag-drop) ----
+els.tabDocuments.addEventListener("click", () => selectTab("documents"));
+els.tabMetadata.addEventListener("click", () => selectTab("metadata"));
+
+els.actAttach.addEventListener("click", () => els.fileInput.click());
+els.dropzone.addEventListener("click", () => els.fileInput.click());
+
+els.dropzone.addEventListener("dragover", (e) => {
+  e.preventDefault();
+  els.dropzone.classList.add("is-drag");
+});
+els.dropzone.addEventListener("dragleave", () => els.dropzone.classList.remove("is-drag"));
+els.dropzone.addEventListener("drop", (e) => {
+  e.preventDefault();
+  els.dropzone.classList.remove("is-drag");
+  const dropped = Array.from(e.dataTransfer?.files ?? []);
+  if (dropped.length) {
+    pendingFiles = pendingFiles.concat(dropped);
+    renderAttachments();
+    updateSendEnabled();
+    els.input.focus();
+    setContextStatus(`${dropped.length} file(s) ready — press send to attach to this record.`);
+  }
+});
+
+els.actHistory.addEventListener("click", () => {
+  if (!currentContext) return;
+  els.input.value = "Show the version history of the documents on this record.";
+  els.form.requestSubmit();
+});
+els.actExtract.addEventListener("click", () => {
+  if (!currentContext) return;
+  els.input.value = "Extract the key data from the documents on this record and summarize it.";
+  els.form.requestSubmit();
+});
+
+// Manual "test record" entry: preview any UCEB business object's documents without a live LOB page.
+els.manualForm.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const businessObjectType = els.manualType.value.trim();
+  const businessObjectId = els.manualId.value.trim();
+  if (!businessObjectType || !businessObjectId) return;
+
+  currentContext = {
+    businessObjectType,
+    businessObjectId,
+    displayName: `${businessObjectType} ${businessObjectId}`,
+    source: "manual",
+  };
+  els.manualForm.hidden = true;
+  selectTab("documents");
+  els.contextType.textContent = businessObjectType;
+  els.contextName.textContent = businessObjectId;
+  els.contextDesc.textContent = describeContext(currentContext);
+  els.docList.innerHTML = "";
+  setContextStatus("Loading related content…");
+
+  try {
+    const { documents } = await fetchContextDocuments(currentContext);
+    renderDocuments(documents);
+  } catch (err) {
+    setContextStatus(`Couldn't load related content: ${err.message}`);
+    els.manualForm.hidden = false;
+  }
+});
 
 els.contextRefresh.addEventListener("click", () => loadContextPanel());
 
