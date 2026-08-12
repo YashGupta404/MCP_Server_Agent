@@ -24,6 +24,18 @@
       </div>
     </header>
 
+    <section id="contextPanel" class="context" hidden>
+      <div class="context__head">
+        <div class="context__meta">
+          <span class="context__badge" id="contextType">record</span>
+          <span class="context__name" id="contextName">—</span>
+        </div>
+        <button id="contextRefresh" class="btn btn--ghost btn--sm" type="button" title="Refresh related content">↻</button>
+      </div>
+      <div class="context__status" id="contextStatus" hidden></div>
+      <ul class="doclist" id="docList"></ul>
+    </section>
+
     <main id="messages" class="messages" aria-live="polite">
       <div class="empty" id="emptyState">
         <div class="empty__icon" aria-hidden="true">◇</div>

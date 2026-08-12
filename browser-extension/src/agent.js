@@ -50,6 +50,69 @@ export async function sendMessageToAgent(message, files = []) {
   return { reply: data.reply ?? "(no reply)" };
 }
 
+/**
+ * Asks the BFF for the documents UCEB holds for a given business object (the record on the current
+ * browser page). Deterministic path (BFF -> MCP list_documents), so it's fast — no LLM round trip.
+ * @param {{ businessObjectType: string, businessObjectId: string, onlyMine?: boolean }} context
+ * @returns {Promise<{ businessObjectType: string, businessObjectId: string, documents: Array<{docId: string, name: string, attributes: Record<string,string>}>, raw: string }>}
+ */
+export async function fetchContextDocuments(context) {
+  const sessionId = await getSession();
+  if (!sessionId) throw new Error("Not signed in.");
+
+  const response = await fetch(`${CONFIG.bff.baseUrl}/api/context`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "X-BFF-Session": sessionId,
+    },
+    body: JSON.stringify({
+      businessObjectType: context.businessObjectType,
+      businessObjectId: context.businessObjectId,
+      onlyMine: Boolean(context.onlyMine),
+    }),
+  });
+
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    const detail = data?.detail || data?.error || `HTTP ${response.status}`;
+    throw new Error(`Context lookup failed (${response.status}): ${detail}`);
+  }
+  return {
+    businessObjectType: data.businessObjectType ?? context.businessObjectType,
+    businessObjectId: data.businessObjectId ?? context.businessObjectId,
+    documents: Array.isArray(data.documents) ? data.documents : [],
+    raw: data.raw ?? "",
+  };
+}
+
+/**
+ * Resolves the Hyland viewer URL for a document (BFF -> MCP open_document_in_viewer) so the popup
+ * can open it in a new browser tab.
+ * @param {string} docId
+ * @returns {Promise<string>} the viewer URL
+ */
+export async function openInViewer(docId) {
+  const sessionId = await getSession();
+  if (!sessionId) throw new Error("Not signed in.");
+
+  const response = await fetch(`${CONFIG.bff.baseUrl}/api/viewer`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "X-BFF-Session": sessionId,
+    },
+    body: JSON.stringify({ docId }),
+  });
+
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok || !data.url) {
+    const detail = data?.detail || data?.error || `HTTP ${response.status}`;
+    throw new Error(`Open in viewer failed (${response.status}): ${detail}`);
+  }
+  return data.url;
+}
+
 /** Reads a File into a base64 payload the BFF can decode and save to disk. */
 async function fileToAttachment(file) {
   const buffer = await file.arrayBuffer();

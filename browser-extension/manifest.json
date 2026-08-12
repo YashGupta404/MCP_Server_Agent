@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "UCEB Agent Chatbot",
-  "version": "0.1.0",
-  "description": "Chat with the Hyland UCEB Agent Builder agent. OAuth (Auth Code + PKCE) sign-in.",
+  "version": "0.2.0",
+  "description": "Context-aware Hyland UCEB assistant: reads the business object on the current page and shows its related content. OAuth (Auth Code + PKCE) sign-in.",
   "action": {
     "default_title": "UCEB Agent Chatbot",
     "default_popup": "src/popup.html"
@@ -11,12 +11,44 @@
     "service_worker": "src/background.js",
     "type": "module"
   },
+  "side_panel": {
+    "default_path": "src/popup.html"
+  },
   "permissions": [
     "identity",
-    "storage"
+    "storage",
+    "tabs",
+    "activeTab",
+    "scripting",
+    "sidePanel"
   ],
   "host_permissions": [
-    "https://localhost:5010/*"
+    "https://localhost:5010/*",
+    "https://*.lightning.force.com/*",
+    "https://*.salesforce.com/*",
+    "https://*.force.com/*",
+    "https://*.service-now.com/*",
+    "https://*.workday.com/*",
+    "https://*.myworkday.com/*",
+    "https://outlook.office.com/*",
+    "https://outlook.office365.com/*"
+  ],
+  "content_scripts": [
+    {
+      "matches": [
+        "https://*.lightning.force.com/*",
+        "https://*.salesforce.com/*",
+        "https://*.force.com/*",
+        "https://*.service-now.com/*",
+        "https://*.workday.com/*",
+        "https://*.myworkday.com/*",
+        "https://outlook.office.com/*",
+        "https://outlook.office365.com/*"
+      ],
+      "js": ["src/content/detector.js"],
+      "run_at": "document_idle",
+      "all_frames": false
+    }
   ],
   "browser_specific_settings": {
     "gecko": {

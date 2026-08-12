@@ -232,6 +232,75 @@ app.MapPost("/api/chat", async (HttpContext ctx, ChatRequest req) =>
     return Results.Json(new { reply = ExtractReply(invokeBody) });
 });
 
+// ---------- Context-aware panel: list documents for the record on the browser screen ----------
+// The extension detects the business object on the active tab (type + id) and posts it here. We call
+// the MCP `list_documents` tool DIRECTLY (deterministic JSON-RPC, no LLM) so the panel loads fast,
+// reusing the same Mcp:BaseUrl + Mcp:ApiKey the staging upload already uses.
+app.MapPost("/api/context", async (HttpContext ctx, ContextRequest req) =>
+{
+    var sessionId = ctx.Request.Headers["X-BFF-Session"].ToString();
+    if (string.IsNullOrEmpty(sessionId) || !sessions.TryGet(sessionId, out _))
+        return Results.Json(new { error = "not_authenticated" }, statusCode: 401);
+
+    if (string.IsNullOrWhiteSpace(req.BusinessObjectId) || string.IsNullOrWhiteSpace(req.BusinessObjectType))
+        return Results.Json(new { error = "missing_fields", detail = "businessObjectId and businessObjectType are required." }, statusCode: 400);
+
+    if (string.IsNullOrWhiteSpace(mcp.BaseUrl) || string.IsNullOrWhiteSpace(mcp.ApiKey))
+        return Results.Json(new { error = "mcp_not_configured", detail = "Mcp:BaseUrl / Mcp:ApiKey is not configured on the BFF." }, statusCode: 500);
+
+    try
+    {
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(120));
+        var text = await McpJsonRpc.CallToolAsync(httpFactory, mcp, "list_documents", new
+        {
+            businessObjectId = req.BusinessObjectId,
+            businessObjectType = req.BusinessObjectType,
+            onlyMine = req.OnlyMine ?? false,
+        }, log, cts.Token);
+
+        var documents = McpJsonRpc.ParseDocumentList(text);
+        return Results.Json(new
+        {
+            businessObjectId = req.BusinessObjectId,
+            businessObjectType = req.BusinessObjectType,
+            documents,
+            raw = text,
+        });
+    }
+    catch (Exception ex)
+    {
+        log.LogError(ex, "/api/context failed for {Type}/{Id}", req.BusinessObjectType, req.BusinessObjectId);
+        return Results.Json(new { error = "context_failed", detail = ex.Message }, statusCode: 502);
+    }
+});
+
+// ---------- Open a document in the Hyland viewer (deterministic; returns the viewer URL) ----------
+app.MapPost("/api/viewer", async (HttpContext ctx, ViewerRequest req) =>
+{
+    var sessionId = ctx.Request.Headers["X-BFF-Session"].ToString();
+    if (string.IsNullOrEmpty(sessionId) || !sessions.TryGet(sessionId, out _))
+        return Results.Json(new { error = "not_authenticated" }, statusCode: 401);
+
+    if (string.IsNullOrWhiteSpace(req.DocId))
+        return Results.Json(new { error = "missing_docId" }, statusCode: 400);
+
+    if (string.IsNullOrWhiteSpace(mcp.BaseUrl) || string.IsNullOrWhiteSpace(mcp.ApiKey))
+        return Results.Json(new { error = "mcp_not_configured" }, statusCode: 500);
+
+    try
+    {
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(60));
+        var text = await McpJsonRpc.CallToolAsync(httpFactory, mcp, "open_document_in_viewer",
+            new { documentId = req.DocId }, log, cts.Token);
+        return Results.Json(new { url = McpJsonRpc.ExtractUrl(text), raw = text });
+    }
+    catch (Exception ex)
+    {
+        log.LogError(ex, "/api/viewer failed for {DocId}", req.DocId);
+        return Results.Json(new { error = "viewer_failed", detail = ex.Message }, statusCode: 502);
+    }
+});
+
 // ---------- helpers: status / logout ----------
 app.MapGet("/auth/status", (HttpContext ctx) =>
 {
@@ -283,6 +352,211 @@ static string ExtractReply(string json)
     catch
     {
         return "(could not parse agent response)";
+    }
+}
+
+// ================= MCP JSON-RPC (Streamable HTTP) client =================
+
+// Minimal client for calling a tool on the MCP server deterministically (no LLM). Does the required
+// handshake (initialize -> notifications/initialized -> tools/call), tracking the Mcp-Session-Id the
+// server returns, and handles both JSON and text/event-stream (SSE) responses.
+static class McpJsonRpc
+{
+    public static async Task<string> CallToolAsync(
+        IHttpClientFactory httpFactory, McpOptions mcp, string toolName, object arguments,
+        ILogger log, CancellationToken ct)
+    {
+        if (string.IsNullOrWhiteSpace(mcp.BaseUrl))
+            throw new InvalidOperationException("Mcp:BaseUrl is not configured.");
+
+        var endpoint = $"{mcp.BaseUrl.TrimEnd('/')}/mcp";
+        var http = httpFactory.CreateClient();
+        http.Timeout = TimeSpan.FromSeconds(120);
+
+        // 1) initialize
+        var (initResult, sessionId) = await PostRequestAsync(http, mcp, endpoint, sessionId: null,
+            protocolVersion: null, id: 1, method: "initialize", @params: new
+            {
+                protocolVersion = "2025-06-18",
+                capabilities = new { },
+                clientInfo = new { name = "UcebAgentBff", version = "0.1" },
+            }, log, ct);
+
+        var protocolVersion = "2025-06-18";
+        if (initResult is { } ir && ir.TryGetProperty("protocolVersion", out var pv) && pv.GetString() is { } negotiated)
+            protocolVersion = negotiated;
+
+        // 2) notifications/initialized (a notification: no id, no response body expected)
+        await PostNotificationAsync(http, mcp, endpoint, sessionId, protocolVersion, "notifications/initialized", ct);
+
+        // 3) tools/call
+        var (callResult, _) = await PostRequestAsync(http, mcp, endpoint, sessionId, protocolVersion,
+            id: 2, method: "tools/call", @params: new { name = toolName, arguments }, log, ct);
+
+        if (callResult is not { } result)
+            throw new InvalidOperationException($"MCP tools/call '{toolName}' returned no result.");
+
+        // The tool's text output lives in result.content[] where type == "text".
+        var sb = new StringBuilder();
+        if (result.TryGetProperty("content", out var content) && content.ValueKind == JsonValueKind.Array)
+        {
+            foreach (var part in content.EnumerateArray())
+            {
+                if (part.TryGetProperty("type", out var t) && t.GetString() == "text" &&
+                    part.TryGetProperty("text", out var txt) && txt.GetString() is { } s)
+                    sb.Append(s);
+            }
+        }
+        return sb.ToString();
+    }
+
+    private static async Task<(JsonElement? Result, string? SessionId)> PostRequestAsync(
+        HttpClient http, McpOptions mcp, string endpoint, string? sessionId, string? protocolVersion,
+        int id, string method, object @params, ILogger log, CancellationToken ct)
+    {
+        using var req = new HttpRequestMessage(HttpMethod.Post, endpoint);
+        AddHeaders(req, mcp, sessionId, protocolVersion);
+        req.Content = new StringContent(
+            JsonSerializer.Serialize(new { jsonrpc = "2.0", id, method, @params }),
+            Encoding.UTF8, "application/json");
+
+        using var resp = await http.SendAsync(req, HttpCompletionOption.ResponseHeadersRead, ct);
+        var newSession = sessionId;
+        if (resp.Headers.TryGetValues("Mcp-Session-Id", out var vals))
+            newSession = vals.FirstOrDefault() ?? sessionId;
+
+        if (!resp.IsSuccessStatusCode)
+        {
+            var errBody = await resp.Content.ReadAsStringAsync(ct);
+            log.LogError("MCP {Method} failed {Status}: {Body}", method, (int)resp.StatusCode, errBody);
+            throw new InvalidOperationException($"MCP {method} failed ({(int)resp.StatusCode}): {errBody}");
+        }
+
+        var mediaType = resp.Content.Headers.ContentType?.MediaType ?? "";
+        if (mediaType.Contains("event-stream", StringComparison.OrdinalIgnoreCase))
+        {
+            using var stream = await resp.Content.ReadAsStreamAsync(ct);
+            using var reader = new StreamReader(stream);
+            string? line;
+            while ((line = await reader.ReadLineAsync(ct)) is not null)
+            {
+                if (!line.StartsWith("data:", StringComparison.Ordinal)) continue;
+                var data = line["data:".Length..].Trim();
+                if (data.Length > 0 && TryExtractResult(data, id, out var r))
+                    return (r, newSession);
+            }
+            return (null, newSession);
+        }
+
+        var body = await resp.Content.ReadAsStringAsync(ct);
+        return (TryExtractResult(body, id, out var res) ? res : null, newSession);
+    }
+
+    private static async Task PostNotificationAsync(
+        HttpClient http, McpOptions mcp, string endpoint, string? sessionId, string? protocolVersion,
+        string method, CancellationToken ct)
+    {
+        using var req = new HttpRequestMessage(HttpMethod.Post, endpoint);
+        AddHeaders(req, mcp, sessionId, protocolVersion);
+        req.Content = new StringContent(
+            JsonSerializer.Serialize(new { jsonrpc = "2.0", method }),
+            Encoding.UTF8, "application/json");
+        using var resp = await http.SendAsync(req, ct);
+        // 202 Accepted (or 200) with no body is expected; nothing to parse.
+    }
+
+    private static void AddHeaders(HttpRequestMessage req, McpOptions mcp, string? sessionId, string? protocolVersion)
+    {
+        req.Headers.TryAddWithoutValidation(mcp.HeaderName, mcp.ApiKey);
+        req.Headers.TryAddWithoutValidation("Accept", "application/json, text/event-stream");
+        if (!string.IsNullOrEmpty(sessionId))
+            req.Headers.TryAddWithoutValidation("Mcp-Session-Id", sessionId);
+        if (!string.IsNullOrEmpty(protocolVersion))
+            req.Headers.TryAddWithoutValidation("MCP-Protocol-Version", protocolVersion);
+    }
+
+    // Parses one JSON-RPC message; returns its cloned "result" when the id matches (and throws on error).
+    private static bool TryExtractResult(string json, int expectedId, out JsonElement result)
+    {
+        result = default;
+        try
+        {
+            using var doc = JsonDocument.Parse(json);
+            var root = doc.RootElement;
+            if (root.TryGetProperty("id", out var idEl) && idEl.ValueKind == JsonValueKind.Number &&
+                idEl.TryGetInt32(out var gotId) && gotId != expectedId)
+                return false;
+            if (root.TryGetProperty("error", out var err))
+                throw new InvalidOperationException($"MCP error: {err}");
+            if (root.TryGetProperty("result", out var res))
+            {
+                result = res.Clone();
+                return true;
+            }
+        }
+        catch (JsonException)
+        {
+            // Not a complete/parseable JSON message (e.g. a keep-alive line) — skip it.
+        }
+        return false;
+    }
+
+    // Parses the list_documents tool's text output into structured document cards.
+    // Expected lines: "- docId: <id> (Col=Value, Col2=Value2)".
+    public static object[] ParseDocumentList(string text)
+    {
+        var docs = new List<object>();
+        if (string.IsNullOrEmpty(text)) return docs.ToArray();
+
+        foreach (var rawLine in text.Split('\n'))
+        {
+            var line = rawLine.Trim();
+            if (!line.StartsWith("- docId:", StringComparison.OrdinalIgnoreCase)) continue;
+
+            var rest = line["- docId:".Length..].Trim();
+            string docId;
+            string? attrsText = null;
+            var open = rest.IndexOf('(');
+            if (open >= 0)
+            {
+                docId = rest[..open].Trim();
+                var close = rest.LastIndexOf(')');
+                attrsText = close > open ? rest[(open + 1)..close] : rest[(open + 1)..];
+            }
+            else
+            {
+                docId = rest;
+            }
+
+            var attributes = new Dictionary<string, string>();
+            if (!string.IsNullOrWhiteSpace(attrsText))
+            {
+                foreach (var pair in attrsText.Split(','))
+                {
+                    var eq = pair.IndexOf('=');
+                    if (eq <= 0) continue;
+                    var k = pair[..eq].Trim();
+                    var v = pair[(eq + 1)..].Trim();
+                    if (k.Length > 0) attributes[k] = v;
+                }
+            }
+
+            var name = attributes.Count > 0 ? attributes.Values.First() : docId;
+            docs.Add(new { docId, name, attributes });
+        }
+
+        return docs.ToArray();
+    }
+
+    // Pulls the first http(s) URL out of a tool's text response (e.g. the viewer URL).
+    public static string? ExtractUrl(string text)
+    {
+        if (string.IsNullOrEmpty(text)) return null;
+        var idx = text.IndexOf("http", StringComparison.OrdinalIgnoreCase);
+        if (idx < 0) return null;
+        var url = text[idx..].Trim();
+        var ws = url.IndexOfAny(new[] { ' ', '\n', '\r', '\t' });
+        return ws > 0 ? url[..ws] : url;
     }
 }
 
@@ -365,6 +639,10 @@ sealed class McpOptions
 sealed record ChatRequest(string Message, string? ConversationId, ChatAttachment[]? Attachments);
 
 sealed record ChatAttachment(string? Name, string? Mime, string DataBase64);
+
+sealed record ContextRequest(string BusinessObjectType, string BusinessObjectId, bool? OnlyMine);
+
+sealed record ViewerRequest(string DocId);
 
 sealed record ExchangeRequest(string Code, string CodeVerifier, string RedirectUri);
 

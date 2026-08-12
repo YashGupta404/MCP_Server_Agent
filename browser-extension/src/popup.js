@@ -1,7 +1,7 @@
 // Popup chat controller: wires the UI to auth.js + agent.js.
 
 import { interactiveLogin, getSession, clearTokens } from "./auth.js";
-import { sendMessageToAgent } from "./agent.js";
+import { sendMessageToAgent, fetchContextDocuments, openInViewer } from "./agent.js";
 
 const ext = globalThis.browser ?? globalThis.chrome;
 
@@ -17,11 +17,19 @@ const els = {
   attachBtn: document.getElementById("attachBtn"),
   fileInput: document.getElementById("fileInput"),
   attachments: document.getElementById("attachments"),
+  contextPanel: document.getElementById("contextPanel"),
+  contextType: document.getElementById("contextType"),
+  contextName: document.getElementById("contextName"),
+  contextStatus: document.getElementById("contextStatus"),
+  contextRefresh: document.getElementById("contextRefresh"),
+  docList: document.getElementById("docList"),
 };
 
 let signedIn = false;
 /** @type {File[]} */
 let pendingFiles = [];
+/** The business object detected on the active browser tab, or null. */
+let currentContext = null;
 
 // ---- UI helpers ----
 
@@ -67,6 +75,7 @@ function setSignedIn(state) {
   els.input.disabled = !state;
   els.attachBtn.disabled = !state;
   updateSendEnabled();
+  loadContextPanel();
 }
 
 function updateSendEnabled() {
@@ -126,6 +135,107 @@ els.fileInput.addEventListener("change", () => {
   // Reset so picking the same file again still fires "change".
   els.fileInput.value = "";
 });
+
+// ---- context panel (content-in-context) ----
+
+/** Asks the background worker for the business object on the active browser tab. */
+async function getActiveContext() {
+  try {
+    const res = await ext.runtime.sendMessage({ type: "UCEB_GET_ACTIVE_CONTEXT" });
+    return res?.context ?? null;
+  } catch {
+    return null;
+  }
+}
+
+function setContextStatus(text) {
+  if (!text) {
+    els.contextStatus.hidden = true;
+    els.contextStatus.textContent = "";
+    return;
+  }
+  els.contextStatus.hidden = false;
+  els.contextStatus.textContent = text;
+}
+
+function renderDocuments(documents) {
+  els.docList.innerHTML = "";
+  if (!documents.length) {
+    setContextStatus("No content linked to this record yet — attach a document with +.");
+    return;
+  }
+  setContextStatus(null);
+
+  for (const doc of documents) {
+    const li = document.createElement("li");
+    li.className = "doc";
+
+    const info = document.createElement("div");
+    info.className = "doc__info";
+
+    const name = document.createElement("span");
+    name.className = "doc__name";
+    name.textContent = doc.name || doc.docId;
+    name.title = doc.docId;
+
+    const meta = document.createElement("span");
+    meta.className = "doc__meta";
+    const attrs = doc.attributes ? Object.entries(doc.attributes) : [];
+    meta.textContent = attrs.length
+      ? attrs.map(([k, v]) => `${k}: ${v}`).join(" · ")
+      : `docId ${doc.docId}`;
+
+    info.append(name, meta);
+
+    const open = document.createElement("button");
+    open.type = "button";
+    open.className = "btn btn--ghost btn--sm doc__open";
+    open.textContent = "Open";
+    open.title = "Open in the Hyland viewer";
+    open.addEventListener("click", async () => {
+      open.disabled = true;
+      const previous = open.textContent;
+      open.textContent = "…";
+      try {
+        const url = await openInViewer(doc.docId);
+        await ext.tabs.create({ url });
+      } catch (err) {
+        setContextStatus(`Open failed: ${err.message}`);
+      } finally {
+        open.disabled = false;
+        open.textContent = previous;
+      }
+    });
+
+    li.append(info, open);
+    els.docList.appendChild(li);
+  }
+}
+
+async function loadContextPanel() {
+  currentContext = signedIn ? await getActiveContext() : null;
+
+  if (!currentContext) {
+    els.contextPanel.hidden = true;
+    els.docList.innerHTML = "";
+    return;
+  }
+
+  els.contextPanel.hidden = false;
+  els.contextType.textContent = currentContext.businessObjectType;
+  els.contextName.textContent = currentContext.displayName || currentContext.businessObjectId;
+  els.docList.innerHTML = "";
+  setContextStatus("Loading related content…");
+
+  try {
+    const { documents } = await fetchContextDocuments(currentContext);
+    renderDocuments(documents);
+  } catch (err) {
+    setContextStatus(`Couldn't load related content: ${err.message}`);
+  }
+}
+
+els.contextRefresh.addEventListener("click", () => loadContextPanel());
 
 // ---- auth ----
 
@@ -187,11 +297,23 @@ els.form.addEventListener("submit", async (event) => {
   const typing = addMessage("Agent is thinking…", "typing");
 
   try {
-    // Send the raw text plus the attached files. The BFF saves each file to disk and tells the
-    // agent the on-server path so it can upload via the upload_document tool.
-    const { reply } = await sendMessageToAgent(text, files);
+    // Send the raw text plus the attached files. When the popup knows which record is on the
+    // browser screen, append a target-record hint so uploads and questions apply to that object
+    // without the user typing its id.
+    let outgoing = text;
+    if (currentContext) {
+      const hint =
+        `\n\n[Context — the user is viewing this record in the browser: ` +
+        `businessObjectType=${currentContext.businessObjectType}, ` +
+        `businessObjectId=${currentContext.businessObjectId}. ` +
+        `Use these when listing or uploading documents for "this record".]`;
+      outgoing = (text + hint).trim();
+    }
+    const { reply } = await sendMessageToAgent(outgoing, files);
     typing.remove();
     addMessage(reply, "agent");
+    // An upload may have changed the record's documents — refresh the panel.
+    if (currentContext && files.length) loadContextPanel();
   } catch (err) {
     typing.remove();
     addMessage(`Error: ${err.message}`, "error");
