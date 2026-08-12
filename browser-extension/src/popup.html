@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>UCEB Agent</title>
+    <link rel="stylesheet" href="popup.css" />
+  </head>
+  <body>
+    <header class="bar">
+      <div class="brand">
+        <span class="brand__mark" aria-hidden="true">U</span>
+        <span class="brand__text">
+          <span class="brand__title">UCEB Agent</span>
+          <span class="brand__sub">Document Intelligence</span>
+        </span>
+      </div>
+      <div class="bar__actions">
+        <span id="status" class="status status--out">
+          <span class="status__dot"></span>
+          <span class="status__label">Signed out</span>
+        </span>
+        <button id="authBtn" class="btn btn--ghost" type="button">Sign in</button>
+      </div>
+    </header>
+
+    <main id="messages" class="messages" aria-live="polite">
+      <div class="empty" id="emptyState">
+        <div class="empty__icon" aria-hidden="true">◇</div>
+        <p class="empty__title">Start a conversation</p>
+        <p class="empty__hint">Ask about documents, or attach files with the <strong>+</strong> button.</p>
+      </div>
+    </main>
+
+    <form id="composer" class="composer">
+      <div id="attachments" class="attachments" hidden></div>
+      <div class="composer__row">
+        <input id="fileInput" class="file-input" type="file" multiple hidden />
+        <button
+          id="attachBtn"
+          class="btn btn--icon"
+          type="button"
+          title="Attach documents"
+          aria-label="Attach documents"
+          disabled
+        >
+          <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+            <line x1="12" y1="5" x2="12" y2="19" />
+            <line x1="5" y1="12" x2="19" y2="12" />
+          </svg>
+        </button>
+        <textarea
+          id="input"
+          class="input"
+          rows="1"
+          placeholder="Ask the agent…"
+          autocomplete="off"
+          disabled
+        ></textarea>
+        <button id="sendBtn" class="btn btn--send" type="submit" disabled aria-label="Send">
+          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <line x1="22" y1="2" x2="11" y2="13" />
+            <polygon points="22 2 15 22 11 13 2 9 22 2" />
+          </svg>
+        </button>
+      </div>
+    </form>
+
+    <script type="module" src="popup.js"></script>
+  </body>
+</html>

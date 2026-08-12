@@ -1,0 +1,27 @@
+{
+  "manifest_version": 3,
+  "name": "UCEB Agent Chatbot",
+  "version": "0.1.0",
+  "description": "Chat with the Hyland UCEB Agent Builder agent. OAuth (Auth Code + PKCE) sign-in.",
+  "action": {
+    "default_title": "UCEB Agent Chatbot",
+    "default_popup": "src/popup.html"
+  },
+  "background": {
+    "service_worker": "src/background.js",
+    "type": "module"
+  },
+  "permissions": [
+    "identity",
+    "storage"
+  ],
+  "host_permissions": [
+    "https://localhost:5010/*"
+  ],
+  "browser_specific_settings": {
+    "gecko": {
+      "id": "uceb-agent-chatbot@hyland.local",
+      "strict_min_version": "115.0"
+    }
+  }
+}
