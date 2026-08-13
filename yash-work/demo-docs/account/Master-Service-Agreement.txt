@@ -1,0 +1,73 @@
+                          MASTER SERVICE AGREEMENT
+
+Agreement No.:      MSA-2026-0417
+Effective Date:     March 3, 2026
+Status:             Executed
+
+------------------------------------------------------------------------
+PARTIES
+------------------------------------------------------------------------
+Provider:   Hyland Software Solutions, LLC
+            28500 Clemens Road, Westlake, OH 44145
+
+Customer:   Health Systems
+            1200 Meridian Parkway, Suite 400, Raleigh, NC 27713
+
+------------------------------------------------------------------------
+1. PURPOSE
+------------------------------------------------------------------------
+This Master Service Agreement ("Agreement") governs the provision of
+software licensing, implementation, and support services by Provider to
+Customer. Individual engagements are documented in Order Forms and
+Statements of Work that reference this Agreement.
+
+------------------------------------------------------------------------
+2. TERM
+------------------------------------------------------------------------
+The initial term is thirty-six (36) months commencing on the Effective
+Date and renews automatically for successive twelve (12) month periods
+unless either party provides sixty (60) days' written notice.
+
+------------------------------------------------------------------------
+3. FEES AND PAYMENT
+------------------------------------------------------------------------
+Customer shall pay all fees within thirty (30) days of invoice date.
+Fees are stated in each applicable Order Form. Late amounts accrue
+interest at 1.0% per month or the maximum permitted by law.
+
+------------------------------------------------------------------------
+4. CONFIDENTIALITY
+------------------------------------------------------------------------
+Each party shall protect the other's Confidential Information using no
+less than a reasonable standard of care and shall use such information
+solely to perform under this Agreement.
+
+------------------------------------------------------------------------
+5. SERVICE LEVELS
+------------------------------------------------------------------------
+Provider warrants 99.9% platform availability measured monthly,
+excluding scheduled maintenance windows communicated at least 72 hours
+in advance.
+
+------------------------------------------------------------------------
+6. LIMITATION OF LIABILITY
+------------------------------------------------------------------------
+Except for breaches of confidentiality or indemnification obligations,
+each party's aggregate liability is limited to the fees paid in the
+twelve (12) months preceding the claim.
+
+------------------------------------------------------------------------
+7. GOVERNING LAW
+------------------------------------------------------------------------
+This Agreement is governed by the laws of the State of Ohio, without
+regard to conflict-of-law principles.
+
+------------------------------------------------------------------------
+SIGNATURES
+------------------------------------------------------------------------
+Provider: ______________________     Customer: ______________________
+Name:     A. Whitfield               Name:     Director, Procurement
+Title:    VP, Enterprise Sales       Title:    Health Systems
+Date:     March 3, 2026              Date:     March 3, 2026
+
+Document ID: MSA-2026-0417  |  Confidential  |  Page 1 of 1

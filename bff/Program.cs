@@ -541,7 +541,22 @@ static class McpJsonRpc
                 }
             }
 
-            var name = attributes.Count > 0 ? attributes.Values.First() : docId;
+            // Prefer the document's display name (hfs_Name) as the card title so users see a readable
+            // name instead of an opaque docId. Fall back to the first non-empty attribute, then the docId.
+            // Remove the name attribute from the set so the sub-line doesn't just repeat the title.
+            string name;
+            var nameKey = attributes.Keys.FirstOrDefault(k =>
+                string.Equals(k, "hfs_Name", StringComparison.OrdinalIgnoreCase)
+                && !string.IsNullOrWhiteSpace(attributes[k]));
+            if (nameKey is not null)
+            {
+                name = attributes[nameKey];
+                attributes.Remove(nameKey);
+            }
+            else
+            {
+                name = attributes.Values.FirstOrDefault(v => !string.IsNullOrWhiteSpace(v)) ?? docId;
+            }
             docs.Add(new { docId, name, attributes });
         }
 

@@ -1,0 +1,55 @@
+                          CAMPAIGN BRIEF
+
+Campaign:       Health Systems - Q3 Cloud Migration Webinar
+Campaign ID:    CMP-2026-Q3-014
+Owner:          Field Marketing
+Status:         Active
+Start Date:     July 15, 2026
+End Date:       September 30, 2026
+
+========================================================================
+OBJECTIVE
+========================================================================
+Drive qualified pipeline for cloud migration and disaster-recovery
+solutions among mid-to-large healthcare delivery networks by hosting an
+educational webinar and follow-up nurture sequence.
+
+========================================================================
+TARGET OUTCOME (KPIs)
+========================================================================
+- Registrations:            600
+- Live Attendees:           240
+- Marketing Qualified Leads: 90
+- Sales Accepted Leads:     35
+- Influenced Pipeline:      1,200,000 USD
+
+========================================================================
+KEY MESSAGE
+========================================================================
+"Modernize archival and disaster-recovery workloads without disrupting
+clinical operations." Position cloud migration as low-risk, standards-
+based, and proven in healthcare environments.
+
+========================================================================
+CHANNELS
+========================================================================
+- Email (3-touch invitation + 2-touch reminder)
+- LinkedIn sponsored content
+- Partner co-marketing
+- Website landing page with gated registration
+
+========================================================================
+OFFER
+========================================================================
+Live 45-minute webinar + on-demand recording + a complimentary
+"Cloud Readiness Assessment" for attendees who request follow-up.
+
+========================================================================
+TIMELINE
+========================================================================
+Wk 1-2:  Creative + landing page build
+Wk 3-6:  Invitation and reminder sends
+Wk 7:    Live webinar
+Wk 8-11: Nurture, scoring, and hand-off to sales
+
+Document ID: CMP-2026-Q3-014  |  Internal  |  Page 1 of 1

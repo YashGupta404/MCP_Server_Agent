@@ -1,0 +1,68 @@
+                        MUTUAL NON-DISCLOSURE AGREEMENT
+
+Reference:          NDA-2026-0092
+Effective Date:     January 14, 2026
+
+------------------------------------------------------------------------
+PARTIES
+------------------------------------------------------------------------
+Disclosing/Receiving Party A:  Hyland Software Solutions, LLC
+Disclosing/Receiving Party B:  Health Systems
+
+Each party may disclose and receive Confidential Information under this
+mutual agreement in connection with evaluating a potential business
+relationship (the "Purpose").
+
+------------------------------------------------------------------------
+1. DEFINITION OF CONFIDENTIAL INFORMATION
+------------------------------------------------------------------------
+"Confidential Information" means non-public information disclosed by one
+party to the other, whether oral, written, or electronic, that is
+designated confidential or would reasonably be understood to be
+confidential given its nature and the circumstances of disclosure,
+including product roadmaps, pricing, architecture, and business plans.
+
+------------------------------------------------------------------------
+2. OBLIGATIONS
+------------------------------------------------------------------------
+The Receiving Party shall:
+  (a) use Confidential Information solely for the Purpose;
+  (b) limit access to employees and advisors with a need to know who are
+      bound by confidentiality obligations at least as protective; and
+  (c) protect it using the same degree of care it uses for its own
+      confidential information, but no less than reasonable care.
+
+------------------------------------------------------------------------
+3. EXCLUSIONS
+------------------------------------------------------------------------
+Confidential Information does not include information that is publicly
+available, already known without obligation of confidence, independently
+developed, or rightfully received from a third party.
+
+------------------------------------------------------------------------
+4. TERM
+------------------------------------------------------------------------
+This Agreement remains in effect for two (2) years from the Effective
+Date. Confidentiality obligations survive for three (3) years following
+disclosure.
+
+------------------------------------------------------------------------
+5. RETURN OR DESTRUCTION
+------------------------------------------------------------------------
+Upon written request, the Receiving Party shall promptly return or
+destroy all Confidential Information and certify such destruction.
+
+------------------------------------------------------------------------
+6. NO LICENSE
+------------------------------------------------------------------------
+No license or ownership right is granted under this Agreement except the
+limited right to use Confidential Information for the Purpose.
+
+------------------------------------------------------------------------
+ACKNOWLEDGED AND AGREED
+------------------------------------------------------------------------
+Party A: ______________________     Party B: ______________________
+Hyland Software Solutions, LLC       Health Systems
+Date: January 14, 2026               Date: January 14, 2026
+
+Document ID: NDA-2026-0092  |  Confidential  |  Page 1 of 1

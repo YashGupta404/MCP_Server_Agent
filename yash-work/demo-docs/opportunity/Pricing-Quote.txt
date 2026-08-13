@@ -1,0 +1,40 @@
+                          PRICING QUOTE
+
+Quote No.:      QUOTE-2026-0331
+Opportunity:    Health Systems - EHR Platform Renewal
+Prepared for:   Health Systems
+Quote Date:     August 5, 2026
+Valid Until:    September 30, 2026
+Currency:       USD
+
+========================================================================
+QUOTED LINE ITEMS
+========================================================================
+#   Product / Service                             Term    List      Net
+1   Content Services Platform - Enterprise        12 mo   120,000   114,000
+2   Enterprise Imaging Module (expanded archive)  12 mo    72,000    68,400
+3   Cloud DR Add-on                               12 mo    28,000    26,600
+4   Premier Support (24x7)                        12 mo    26,000    26,000
+5   Implementation Services (fixed fee)           once     35,000    31,500
+------------------------------------------------------------------------
+                                     Subtotal (annual + one-time)  266,500
+                                     Volume Discount (applied)      -16,500
+                                     ----------------------------------------
+                                     TOTAL CONTRACT VALUE (Yr 1)    250,000
+
+========================================================================
+NOTES
+========================================================================
+- Pricing assumes a 36-month agreement under MSA-2026-0417.
+- Years 2-3 renew at the annual recurring subtotal (218,500 USD).
+- Taxes, if applicable, are billed separately.
+- Discount reflects multi-year commitment and expansion scope.
+
+========================================================================
+ACCEPTANCE
+========================================================================
+To proceed, sign the accompanying Order Form (ORD-2026-0331).
+
+Prepared by: Enterprise Sales, Hyland Software Solutions
+
+Document ID: QUOTE-2026-0331  |  Confidential  |  Page 1 of 1

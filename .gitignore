@@ -12,6 +12,8 @@ artifacts/
 *.pfx
 secrets.json
 appsettings.*.local.json
+# Admin helper contains the MCP API key — never commit
+bff/mcp-admin.ps1
 
 # ---- Node / extension tooling ----
 node_modules/

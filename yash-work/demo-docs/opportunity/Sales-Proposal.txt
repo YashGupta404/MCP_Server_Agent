@@ -1,0 +1,58 @@
+                          SALES PROPOSAL
+
+Prepared for:   Health Systems
+Opportunity:    Health Systems - EHR Platform Renewal
+Proposal No.:   PROP-2026-0331
+Date:           August 5, 2026
+Prepared by:    Hyland Software Solutions - Enterprise Sales
+
+========================================================================
+EXECUTIVE SUMMARY
+========================================================================
+Health Systems is renewing and expanding its enterprise content and
+imaging platform to support a three-year modernization roadmap. This
+proposal outlines the recommended solution, scope, and commercial terms
+to renew the existing platform and add capacity for the organization's
+cloud migration and imaging-archive expansion initiatives.
+
+========================================================================
+UNDERSTANDING YOUR OBJECTIVES
+========================================================================
+1. Consolidate clinical and administrative content onto one governed
+   platform.
+2. Expand imaging-archive capacity by 40% over 18 months.
+3. Reduce clinician document-retrieval time by 25%.
+4. Migrate disaster-recovery workloads to cloud infrastructure.
+
+========================================================================
+RECOMMENDED SOLUTION
+========================================================================
+- Content Services Platform renewal (enterprise tier)
+- Enterprise Imaging Module with expanded archive tier
+- Cloud DR add-on for automated failover
+- Premier Support (24x7) with named technical account manager
+
+========================================================================
+IMPLEMENTATION APPROACH
+========================================================================
+Phase 1 (Weeks 1-4):   Discovery, environment assessment, success plan
+Phase 2 (Weeks 5-10):  Platform renewal, configuration, integrations
+Phase 3 (Weeks 11-16): Imaging expansion, DR enablement, cutover
+Phase 4 (Ongoing):     Adoption support and quarterly business reviews
+
+========================================================================
+WHY HYLAND
+========================================================================
+- Proven healthcare deployments across integrated delivery networks
+- 99.9% availability SLA with transparent reporting
+- Single governed repository reducing operational overhead
+
+========================================================================
+INVESTMENT SUMMARY
+========================================================================
+See accompanying Pricing Quote (QUOTE-2026-0331) for detailed pricing.
+Estimated annual investment: 250,000 USD (before applicable discounts).
+
+We appreciate the opportunity to partner with Health Systems.
+
+Document ID: PROP-2026-0331  |  Confidential  |  Page 1 of 1

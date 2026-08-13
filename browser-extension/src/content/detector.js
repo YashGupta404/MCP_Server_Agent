@@ -95,6 +95,23 @@
     return null;
   }
 
+  // Some LOB apps expose very long record ids (Outlook message ids can be 150+ chars). HFS/CIC stores
+  // each record's documents under a folder named after the businessObjectId, which has a length limit,
+  // so an over-long id is rejected and the upload/list fails. We deterministically shorten over-long
+  // ids to a short, STABLE hash (same input -> same output across reloads/machines) so the same email
+  // always maps to the same record and previously-uploaded docs are still found.
+  const MAX_ID_LEN = 64;
+  function hashId(str) {
+    function fnv(s, seed) {
+      let h = seed >>> 0;
+      for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = (h * 0x01000193) >>> 0; }
+      return h >>> 0;
+    }
+    const a = fnv(str, 0x811c9dc5).toString(36);
+    const b = fnv(str.split("").reverse().join(""), 0x811c9dc5).toString(36);
+    return a + b;
+  }
+
   function detect() {
     const loc = window.location;
     const host = loc.hostname;
@@ -103,17 +120,23 @@
     if (/\.force\.com$|\.salesforce\.com$|\.lightning\.force\.com$/.test(host)) raw = detectSalesforce(loc);
     else if (/\.service-now\.com$/.test(host)) raw = detectServiceNow(loc);
     else if (/\.workday\.com$|\.myworkday\.com$/.test(host)) raw = detectWorkday(loc);
-    else if (/^outlook\.(office(365)?|live)\.com$/.test(host)) raw = detectOutlook(loc);
+    else if (/^outlook\.(office(365)?|live)\.com$|^outlook\.cloud\.microsoft$/.test(host)) raw = detectOutlook(loc);
 
     if (!raw || !raw.businessObjectId) return null;
 
     const businessObjectType = normalizeType(raw.rawType);
     if (!businessObjectType) return null;
 
+    // Guard against ids too long for the HFS folder-name limit (e.g. Outlook message ids).
+    let businessObjectId = raw.businessObjectId;
+    if (businessObjectId.length > MAX_ID_LEN) {
+      businessObjectId = `${businessObjectType}-${hashId(raw.businessObjectId)}`;
+    }
+
     return {
       businessObjectType,
-      businessObjectId: raw.businessObjectId,
-      displayName: raw.displayName || `${businessObjectType} ${raw.businessObjectId}`,
+      businessObjectId,
+      displayName: raw.displayName || `${businessObjectType} ${businessObjectId}`,
       source: host,
       url: loc.href,
     };

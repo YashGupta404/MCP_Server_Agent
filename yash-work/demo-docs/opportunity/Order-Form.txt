@@ -1,0 +1,50 @@
+                          ORDER FORM
+
+Order No.:      ORD-2026-0331
+Opportunity:    Health Systems - EHR Platform Renewal
+Governing MSA:  MSA-2026-0417
+Order Date:     August 12, 2026
+Currency:       USD
+
+------------------------------------------------------------------------
+CUSTOMER
+------------------------------------------------------------------------
+Health Systems
+1200 Meridian Parkway, Suite 400, Raleigh, NC 27713
+Billing Contact: Accounts Payable
+
+------------------------------------------------------------------------
+ORDERED PRODUCTS AND SERVICES
+------------------------------------------------------------------------
+Line  Description                                Start        Term    Annual
+1     Content Services Platform - Enterprise     10/01/2026   36 mo   114,000
+2     Enterprise Imaging Module (expanded)       10/01/2026   36 mo    68,400
+3     Cloud DR Add-on                            10/01/2026   36 mo    26,600
+4     Premier Support (24x7)                     10/01/2026   36 mo    26,000
+5     Implementation Services (one-time)         10/01/2026   once     31,500
+
+------------------------------------------------------------------------
+COMMERCIAL SUMMARY
+------------------------------------------------------------------------
+Year 1 Total (incl. one-time):                                  250,000
+Annual Recurring (Years 2-3):                                   218,500
+Total Contract Value (36 months):                               687,000
+Payment Terms:                                                  Net 30
+Billing Frequency:                                              Annual
+
+------------------------------------------------------------------------
+TERMS
+------------------------------------------------------------------------
+This Order Form is governed by and incorporated into Master Service
+Agreement MSA-2026-0417. Prices are firm through the initial term.
+Renewal terms are described in QUOTE-2026-0331.
+
+------------------------------------------------------------------------
+SIGNATURES
+------------------------------------------------------------------------
+Customer: ______________________     Provider: ______________________
+Health Systems                        Hyland Software Solutions, LLC
+Title:  Director, Procurement         Title:  VP, Enterprise Sales
+Date:   ________________              Date:   ________________
+
+Document ID: ORD-2026-0331  |  Confidential  |  Page 1 of 1

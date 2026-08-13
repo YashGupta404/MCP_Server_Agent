@@ -1,0 +1,45 @@
+                                INVOICE
+
+Hyland Software Solutions, LLC
+28500 Clemens Road, Westlake, OH 44145
+Billing: accounts.receivable@hyland-demo.example
+
+------------------------------------------------------------------------
+Invoice No.:     INV-2026-10488
+Invoice Date:    July 1, 2026
+Due Date:        July 31, 2026
+Terms:           Net 30
+PO Number:       HS-PO-77213
+------------------------------------------------------------------------
+
+BILL TO
+------------------------------------------------------------------------
+Health Systems
+Attn: Accounts Payable
+1200 Meridian Parkway, Suite 400
+Raleigh, NC 27713
+
+------------------------------------------------------------------------
+LINE ITEMS
+------------------------------------------------------------------------
+#   Description                                  Qty      Unit      Amount
+1   Content Services Platform - Annual License   1     120,000    120,000.00
+2   Enterprise Imaging Module - Annual License   1      48,000     48,000.00
+3   Premier Support (24x7)                       1      26,000     26,000.00
+4   Implementation Services (fixed)              1      35,000     35,000.00
+------------------------------------------------------------------------
+                                             Subtotal            229,000.00
+                                             Discount (5%)       -11,450.00
+                                             Tax (0%)                  0.00
+                                             ------------------------------
+                                             TOTAL DUE          217,550.00 USD
+
+------------------------------------------------------------------------
+PAYMENT INSTRUCTIONS
+------------------------------------------------------------------------
+Remit by ACH to Account on file, referencing Invoice No. INV-2026-10488.
+Questions regarding this invoice should be directed to your account team.
+
+Thank you for your business.
+
+Document ID: INV-2026-10488  |  Confidential  |  Page 1 of 1

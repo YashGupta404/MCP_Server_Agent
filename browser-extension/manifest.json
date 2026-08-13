@@ -4,8 +4,7 @@
   "version": "0.2.0",
   "description": "Context-aware Hyland UCEB assistant: reads the business object on the current page and shows its related content. OAuth (Auth Code + PKCE) sign-in.",
   "action": {
-    "default_title": "UCEB Agent Chatbot",
-    "default_popup": "src/popup.html"
+    "default_title": "UCEB Agent Chatbot"
   },
   "background": {
     "service_worker": "src/background.js",
@@ -32,7 +31,8 @@
     "https://*.myworkday.com/*",
     "https://outlook.office.com/*",
     "https://outlook.office365.com/*",
-    "https://outlook.live.com/*"
+    "https://outlook.live.com/*",
+    "https://outlook.cloud.microsoft/*"
   ],
   "content_scripts": [
     {
@@ -45,7 +45,8 @@
         "https://*.myworkday.com/*",
         "https://outlook.office.com/*",
         "https://outlook.office365.com/*",
-        "https://outlook.live.com/*"
+        "https://outlook.live.com/*",
+        "https://outlook.cloud.microsoft/*"
       ],
       "js": ["src/content/detector.js"],
       "run_at": "document_idle",

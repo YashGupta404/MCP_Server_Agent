@@ -1,0 +1,57 @@
+                       CAMPAIGN PERFORMANCE REPORT
+
+Campaign:       Health Systems - Q3 Cloud Migration Webinar
+Campaign ID:    CMP-2026-Q3-014
+Reporting Period: July 15 - September 30, 2026
+Report Date:    October 2, 2026
+Status:         Completed
+
+========================================================================
+RESULTS VS. TARGET
+========================================================================
+Metric                        Target     Actual     Attainment
+------------------------------------------------------------------------
+Registrations                    600        648         108%
+Live Attendees                   240        291         121%
+Marketing Qualified Leads         90        104         116%
+Sales Accepted Leads              35         41         117%
+Influenced Pipeline (USD)   1,200,000  1,465,000        122%
+
+========================================================================
+CHANNEL PERFORMANCE
+========================================================================
+Channel                 Registrations   % of Total   Cost per Reg
+------------------------------------------------------------------------
+Email                          289          45%          $12
+LinkedIn Sponsored             181          28%          $34
+Partner Co-marketing           118          18%          $19
+Organic / Landing Page          60           9%           $0
+
+========================================================================
+ENGAGEMENT HIGHLIGHTS
+========================================================================
+- Average webinar watch time: 38 of 45 minutes (84%)
+- On-demand replay views (post-event): 213
+- Assessment requests: 57
+
+========================================================================
+FUNNEL SUMMARY
+========================================================================
+Registrations 648  ->  Attendees 291  ->  MQLs 104  ->  SALs 41
+Registration-to-SAL conversion: 6.3%
+
+========================================================================
+KEY TAKEAWAYS
+========================================================================
+1. Email remained the most cost-efficient channel.
+2. LinkedIn drove the highest-intent, later-stage engagement.
+3. Recommend a follow-on DR-focused webinar in Q4 to nurture SALs.
+
+========================================================================
+NEXT STEPS
+========================================================================
+- Hand off 41 SALs to Enterprise Sales with attendance context.
+- Launch 4-touch nurture to non-attending registrants.
+- Schedule Q4 follow-on session.
+
+Document ID: CMP-2026-Q3-014-RPT  |  Internal  |  Page 1 of 1

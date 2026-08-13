@@ -1,0 +1,55 @@
+                          COMPANY PROFILE
+
+Health Systems
+Integrated Healthcare Delivery Network
+------------------------------------------------------------------------
+
+OVERVIEW
+------------------------------------------------------------------------
+Health Systems is a regional integrated healthcare delivery network
+headquartered in Raleigh, North Carolina. The organization operates
+acute-care hospitals, outpatient clinics, and specialty imaging centers
+across the southeastern United States, serving more than 1.4 million
+patients annually.
+
+------------------------------------------------------------------------
+KEY FACTS
+------------------------------------------------------------------------
+Founded:                1987
+Headquarters:           Raleigh, NC
+Facilities:             6 hospitals, 34 outpatient clinics
+Employees:              ~11,200
+Annual Patient Visits:  1.4 million
+Fiscal Year End:        June 30
+
+------------------------------------------------------------------------
+MISSION
+------------------------------------------------------------------------
+To deliver compassionate, coordinated, and technology-enabled care that
+improves the health of the communities we serve.
+
+------------------------------------------------------------------------
+TECHNOLOGY ENVIRONMENT
+------------------------------------------------------------------------
+- Electronic Health Record (EHR) platform serving all facilities
+- Enterprise imaging and PACS across 3 imaging centers
+- Content services platform for clinical and administrative documents
+- Cloud migration initiative underway for archival and DR workloads
+
+------------------------------------------------------------------------
+STRATEGIC PRIORITIES (FY2026)
+------------------------------------------------------------------------
+1. Consolidate content repositories onto a single governed platform.
+2. Expand digital imaging archive capacity by 40%.
+3. Migrate disaster-recovery workloads to cloud infrastructure.
+4. Improve clinician document-retrieval times by 25%.
+
+------------------------------------------------------------------------
+PRIMARY CONTACTS (ROLES)
+------------------------------------------------------------------------
+- Chief Information Officer
+- Director of Procurement
+- Enterprise Imaging Program Lead
+
+------------------------------------------------------------------------
+Document ID: PROFILE-HS-2026  |  Public  |  Page 1 of 1

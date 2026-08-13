@@ -15,10 +15,10 @@ ext.runtime.onInstalled.addListener(() => {
   console.info("[background] UCEB Agent Chatbot installed.");
 });
 
-// Allow the toolbar icon to also open the side panel where supported (Chrome). The action popup
-// still opens on left-click; the side panel is available via right-click "Open side panel".
+// Open the persistent side panel when the toolbar icon is clicked (Chrome). The side panel stays
+// docked and open when you click other tabs/windows, unlike the action popup which closes on blur.
 try {
-  ext.sidePanel?.setPanelBehavior?.({ openPanelOnActionClick: false });
+  ext.sidePanel?.setPanelBehavior?.({ openPanelOnActionClick: true });
 } catch {
   /* sidePanel API not available (e.g. Firefox) — ignore */
 }

@@ -1,0 +1,56 @@
+                        TARGET AUDIENCE PLAN
+
+Campaign:       Health Systems - Q3 Cloud Migration Webinar
+Campaign ID:    CMP-2026-Q3-014
+Prepared by:    Marketing Operations
+Date:           July 8, 2026
+
+========================================================================
+PRIMARY AUDIENCE
+========================================================================
+Healthcare delivery networks (5+ facilities) evaluating cloud migration
+for archival, imaging, and disaster-recovery workloads.
+
+------------------------------------------------------------------------
+TARGET SEGMENTS
+------------------------------------------------------------------------
+Segment                     Est. Accounts   Priority
+------------------------------------------------------------------------
+Integrated Delivery Networks       420        High
+Regional Hospital Systems          610        High
+Specialty Imaging Providers        280        Medium
+Academic Medical Centers           140        Medium
+
+========================================================================
+TARGET PERSONAS
+========================================================================
+1. Chief Information Officer
+   - Cares about risk, compliance, total cost of ownership.
+2. Director of IT Infrastructure
+   - Cares about migration effort, downtime, DR readiness.
+3. Enterprise Imaging Program Lead
+   - Cares about archive capacity and retrieval performance.
+
+========================================================================
+GEOGRAPHY & FIRMOGRAPHICS
+========================================================================
+Region:         United States (Southeast + Mid-Atlantic focus)
+Facility Count: 5+ facilities
+Annual Visits:  500,000+
+Tech Signals:   On-prem archive at capacity; active DR modernization
+
+========================================================================
+EXCLUSIONS (SUPPRESSION)
+========================================================================
+- Existing opt-outs and unsubscribes
+- Active open opportunities in late-stage negotiation
+- Competitors and internal domains
+
+========================================================================
+ESTIMATED REACHABLE AUDIENCE
+========================================================================
+Total addressable contacts:      4,800
+After suppression:               4,150
+Target registrations:              600
+
+Document ID: CMP-2026-Q3-014-AUD  |  Internal  |  Page 1 of 1

@@ -23,13 +23,12 @@ const els = {
   contextDesc: document.getElementById("contextDesc"),
   contextStatus: document.getElementById("contextStatus"),
   contextRefresh: document.getElementById("contextRefresh"),
+  contextToggle: document.getElementById("contextToggle"),
   docList: document.getElementById("docList"),
   docPane: document.getElementById("docPane"),
   metaPane: document.getElementById("metaPane"),
   dropzone: document.getElementById("dropzone"),
   actAttach: document.getElementById("actAttach"),
-  actHistory: document.getElementById("actHistory"),
-  actExtract: document.getElementById("actExtract"),
   tabDocuments: document.getElementById("tabDocuments"),
   tabMetadata: document.getElementById("tabMetadata"),
   manualForm: document.getElementById("manualForm"),
@@ -54,15 +53,177 @@ function formatSize(bytes) {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
+// ---- Minimal, safe Markdown renderer (for agent replies) ----
+// Input is HTML-escaped FIRST, so raw HTML in the reply can never inject markup;
+// only the tags this renderer emits are produced. Supports headings, bold, italic,
+// inline code, fenced code, links (http/https only), bullet/numbered lists and tables.
+function escapeHtml(s) {
+  return String(s)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
+function renderInline(text) {
+  // Protect inline code spans from other replacements.
+  const codeTokens = [];
+  text = text.replace(/`([^`]+)`/g, (_, c) => {
+    codeTokens.push(c);
+    return `\u0000C${codeTokens.length - 1}\u0000`;
+  });
+  // Links [label](http/https url) — only safe schemes.
+  text = text.replace(
+    /\[([^\]]+)\]\((https?:\/\/[^)\s]+)\)/g,
+    (_, label, url) => `<a href="${url}" target="_blank" rel="noopener noreferrer">${label}</a>`
+  );
+  // Bold, then italic.
+  text = text.replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>");
+  text = text.replace(/__([^_]+)__/g, "<strong>$1</strong>");
+  text = text.replace(/(^|[^*])\*([^*\n]+)\*/g, "$1<em>$2</em>");
+  text = text.replace(/(^|[^_\w])_([^_\n]+)_/g, "$1<em>$2</em>");
+  // Restore code spans.
+  text = text.replace(/\u0000C(\d+)\u0000/g, (_, i) => `<code>${codeTokens[+i]}</code>`);
+  return text;
+}
+
+function renderMarkdown(md) {
+  const lines = escapeHtml(md).replace(/\r\n?/g, "\n").split("\n");
+  const out = [];
+  let listType = null;
+  const closeList = () => {
+    if (listType) {
+      out.push(`</${listType}>`);
+      listType = null;
+    }
+  };
+
+  let i = 0;
+  while (i < lines.length) {
+    const line = lines[i];
+
+    // Fenced code block.
+    if (/^\s*```/.test(line)) {
+      closeList();
+      const code = [];
+      i++;
+      while (i < lines.length && !/^\s*```/.test(lines[i])) {
+        code.push(lines[i]);
+        i++;
+      }
+      i++; // skip closing fence
+      out.push(`<pre><code>${code.join("\n")}</code></pre>`);
+      continue;
+    }
+
+    // Table: header row with pipes followed by a |---|---| separator.
+    if (
+      line.includes("|") &&
+      i + 1 < lines.length &&
+      /^[\s|:-]+$/.test(lines[i + 1]) &&
+      lines[i + 1].includes("-")
+    ) {
+      closeList();
+      const parseRow = (r) =>
+        r.replace(/^\s*\|/, "").replace(/\|\s*$/, "").split("|").map((c) => c.trim());
+      const headers = parseRow(line);
+      i += 2;
+      let t = "<table><thead><tr>";
+      for (const h of headers) t += `<th>${renderInline(h)}</th>`;
+      t += "</tr></thead><tbody>";
+      while (i < lines.length && lines[i].includes("|") && lines[i].trim() !== "") {
+        const cells = parseRow(lines[i]);
+        t += "<tr>";
+        for (let c = 0; c < headers.length; c++) t += `<td>${renderInline(cells[c] ?? "")}</td>`;
+        t += "</tr>";
+        i++;
+      }
+      t += "</tbody></table>";
+      out.push(t);
+      continue;
+    }
+
+    // Heading.
+    const heading = /^(#{1,6})\s+(.*)$/.exec(line);
+    if (heading) {
+      closeList();
+      const level = heading[1].length;
+      out.push(`<h${level}>${renderInline(heading[2])}</h${level}>`);
+      i++;
+      continue;
+    }
+
+    // Unordered list item.
+    const ul = /^\s*[-*+]\s+(.*)$/.exec(line);
+    if (ul) {
+      if (listType !== "ul") {
+        closeList();
+        out.push("<ul>");
+        listType = "ul";
+      }
+      out.push(`<li>${renderInline(ul[1])}</li>`);
+      i++;
+      continue;
+    }
+
+    // Ordered list item.
+    const ol = /^\s*\d+\.\s+(.*)$/.exec(line);
+    if (ol) {
+      if (listType !== "ol") {
+        closeList();
+        out.push("<ol>");
+        listType = "ol";
+      }
+      out.push(`<li>${renderInline(ol[1])}</li>`);
+      i++;
+      continue;
+    }
+
+    // Blank line ends a block.
+    if (line.trim() === "") {
+      closeList();
+      i++;
+      continue;
+    }
+
+    // Paragraph: gather consecutive plain lines.
+    closeList();
+    const para = [line];
+    i++;
+    while (
+      i < lines.length &&
+      lines[i].trim() !== "" &&
+      !/^\s*```/.test(lines[i]) &&
+      !/^(#{1,6})\s+/.test(lines[i]) &&
+      !/^\s*[-*+]\s+/.test(lines[i]) &&
+      !/^\s*\d+\.\s+/.test(lines[i]) &&
+      !lines[i].includes("|")
+    ) {
+      para.push(lines[i]);
+      i++;
+    }
+    out.push(`<p>${renderInline(para.join("<br>"))}</p>`);
+  }
+
+  closeList();
+  return out.join("");
+}
+
 function addMessage(text, kind, files) {
   if (els.emptyState) els.emptyState.hidden = true;
-
   const el = document.createElement("div");
   el.className = `msg msg--${kind}`;
 
   const body = document.createElement("div");
   body.className = "msg__text";
-  body.textContent = text;
+  if (kind === "agent") {
+    // Agent replies are Markdown — render a safe subset (input is HTML-escaped first).
+    body.classList.add("md");
+    body.innerHTML = renderMarkdown(text);
+  } else {
+    body.textContent = text;
+  }
   el.appendChild(body);
 
   if (files && files.length) {
@@ -318,8 +479,8 @@ async function loadContextPanel() {
   els.manualForm.hidden = true;
   selectTab("documents");
   els.contextType.textContent = currentContext.businessObjectType;
-  els.contextName.textContent = currentContext.displayName || currentContext.businessObjectId;
-  els.contextDesc.textContent = describeContext(currentContext);
+  els.contextName.textContent = currentContext.businessObjectId;
+  els.contextDesc.hidden = true;
   els.docList.innerHTML = "";
   setContextStatus("Loading related content…");
 
@@ -361,17 +522,6 @@ els.dropzone.addEventListener("drop", (e) => {
   }
 });
 
-els.actHistory.addEventListener("click", () => {
-  if (!currentContext) return;
-  els.input.value = "Show the version history of the documents on this record.";
-  els.form.requestSubmit();
-});
-els.actExtract.addEventListener("click", () => {
-  if (!currentContext) return;
-  els.input.value = "Extract the key data from the documents on this record and summarize it.";
-  els.form.requestSubmit();
-});
-
 // Manual "test record" entry: preview any UCEB business object's documents without a live LOB page.
 els.manualForm.addEventListener("submit", async (event) => {
   event.preventDefault();
@@ -389,7 +539,7 @@ els.manualForm.addEventListener("submit", async (event) => {
   selectTab("documents");
   els.contextType.textContent = businessObjectType;
   els.contextName.textContent = businessObjectId;
-  els.contextDesc.textContent = describeContext(currentContext);
+  els.contextDesc.hidden = true;
   els.docList.innerHTML = "";
   setContextStatus("Loading related content…");
 
@@ -403,6 +553,35 @@ els.manualForm.addEventListener("submit", async (event) => {
 });
 
 els.contextRefresh.addEventListener("click", () => loadContextPanel());
+
+// Collapse/expand the context panel so the chat can use the full height.
+els.contextToggle.addEventListener("click", () => {
+  const collapsed = els.contextPanel.classList.toggle("hec--collapsed");
+  els.contextToggle.setAttribute("aria-expanded", String(!collapsed));
+  els.contextToggle.title = collapsed ? "Show panel" : "Hide panel";
+});
+
+// ---- auto-refresh: re-fetch related content whenever the active tab or record changes ----
+// (In the side panel this keeps content in sync as you click through emails / open records.)
+let contextReloadTimer = null;
+function scheduleContextReload() {
+  if (!signedIn) return;
+  // Don't clobber a manual entry or a message the user is actively typing.
+  const active = document.activeElement;
+  if (active && (els.manualForm.contains(active) || active === els.input)) return;
+  clearTimeout(contextReloadTimer);
+  contextReloadTimer = setTimeout(() => loadContextPanel(), 300);
+}
+
+ext.tabs?.onActivated?.addListener(() => scheduleContextReload());
+ext.tabs?.onUpdated?.addListener((_tabId, changeInfo, tab) => {
+  if (tab?.active && (changeInfo.url || changeInfo.status === "complete")) scheduleContextReload();
+});
+ext.windows?.onFocusChanged?.addListener(() => scheduleContextReload());
+// The content script re-detects on SPA navigation (e.g. opening another email) and broadcasts this.
+ext.runtime.onMessage.addListener((msg) => {
+  if (msg?.type === "UCEB_CONTEXT") scheduleContextReload();
+});
 
 // ---- auth ----
 
