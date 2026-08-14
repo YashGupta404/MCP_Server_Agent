@@ -87,6 +87,67 @@ export async function fetchContextDocuments(context) {
 }
 
 /**
+ * Lists the available UCEB document (content) types (BFF -> MCP list_document_types) to populate
+ * the panel's upload doc-type dropdown.
+ * @returns {Promise<string[]>}
+ */
+export async function fetchDocumentTypes() {
+  const sessionId = await getSession();
+  if (!sessionId) throw new Error("Not signed in.");
+
+  const response = await fetch(`${CONFIG.bff.baseUrl}/api/doctypes`, {
+    method: "GET",
+    headers: { "X-BFF-Session": sessionId },
+  });
+
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    const detail = data?.detail || data?.error || `HTTP ${response.status}`;
+    throw new Error(`Doc types lookup failed (${response.status}): ${detail}`);
+  }
+  return Array.isArray(data.types) ? data.types : [];
+}
+
+/**
+ * Uploads one or more files DIRECTLY to a record's content in UCEB (BFF -> MCP staging ->
+ * upload_staged_file), without going through the chatbot/LLM. Used by the panel's Upload section.
+ * @param {{ businessObjectType: string, businessObjectId: string }} context
+ * @param {string} docType the UCEB document (content) type, e.g. "dev-test-account"
+ * @param {File[]} files
+ * @returns {Promise<{ uploaded: string[], errors: string[] }>}
+ */
+export async function uploadDocuments(context, docType, files) {
+  const sessionId = await getSession();
+  if (!sessionId) throw new Error("Not signed in.");
+
+  const attachments = await Promise.all((files ?? []).map(fileToAttachment));
+
+  const response = await fetch(`${CONFIG.bff.baseUrl}/api/upload`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "X-BFF-Session": sessionId,
+    },
+    body: JSON.stringify({
+      businessObjectType: context.businessObjectType,
+      businessObjectId: context.businessObjectId,
+      ecmContentTypeName: docType,
+      attachments,
+    }),
+  });
+
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    const detail = data?.detail || data?.error || `HTTP ${response.status}`;
+    throw new Error(`Upload failed (${response.status}): ${detail}`);
+  }
+  return {
+    uploaded: Array.isArray(data.uploaded) ? data.uploaded : [],
+    errors: Array.isArray(data.errors) ? data.errors : [],
+  };
+}
+
+/**
  * Resolves the Hyland viewer URL for a document (BFF -> MCP open_document_in_viewer) so the popup
  * can open it in a new browser tab.
  * @param {string} docId

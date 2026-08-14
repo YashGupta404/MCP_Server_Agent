@@ -1,10 +1,22 @@
 {
   "manifest_version": 3,
-  "name": "UCEB Agent Chatbot",
+  "name": "Hyland Integrations Agent",
   "version": "0.2.0",
   "description": "Context-aware Hyland UCEB assistant: reads the business object on the current page and shows its related content. OAuth (Auth Code + PKCE) sign-in.",
+  "icons": {
+    "16": "src/assets/hyland-logo.png",
+    "32": "src/assets/hyland-logo.png",
+    "48": "src/assets/hyland-logo.png",
+    "128": "src/assets/hyland-logo.png"
+  },
   "action": {
-    "default_title": "UCEB Agent Chatbot"
+    "default_title": "Hyland Integrations Agent",
+    "default_icon": {
+      "16": "src/assets/hyland-logo.png",
+      "32": "src/assets/hyland-logo.png",
+      "48": "src/assets/hyland-logo.png",
+      "128": "src/assets/hyland-logo.png"
+    }
   },
   "background": {
     "service_worker": "src/background.js",

@@ -1,7 +1,7 @@
 // Popup chat controller: wires the UI to auth.js + agent.js.
 
 import { interactiveLogin, getSession, clearTokens } from "./auth.js";
-import { sendMessageToAgent, fetchContextDocuments, openInViewer } from "./agent.js";
+import { sendMessageToAgent, fetchContextDocuments, openInViewer, uploadDocuments, fetchDocumentTypes } from "./agent.js";
 
 const ext = globalThis.browser ?? globalThis.chrome;
 
@@ -34,6 +34,12 @@ const els = {
   manualForm: document.getElementById("manualForm"),
   manualType: document.getElementById("manualType"),
   manualId: document.getElementById("manualId"),
+  uploadFileInput: document.getElementById("uploadFileInput"),
+  uploadFiles: document.getElementById("uploadFiles"),
+  uploadDocType: document.getElementById("uploadDocType"),
+  uploadRecordId: document.getElementById("uploadRecordId"),
+  uploadBtn: document.getElementById("uploadBtn"),
+  uploadStatus: document.getElementById("uploadStatus"),
 };
 
 // Documents currently shown in the panel (used by the Metadata tab).
@@ -42,6 +48,9 @@ let loadedDocuments = [];
 let signedIn = false;
 /** @type {File[]} */
 let pendingFiles = [];
+/** Files queued in the panel's Upload section (separate from the chat composer). */
+/** @type {File[]} */
+let pendingUploadFiles = [];
 /** The business object detected on the active browser tab, or null. */
 let currentContext = null;
 
@@ -252,6 +261,56 @@ function setSignedIn(state) {
   els.attachBtn.disabled = !state;
   updateSendEnabled();
   loadContextPanel();
+  if (state) populateDocTypes();
+}
+
+// Known dev content types used as a fallback if the live list can't be fetched.
+const FALLBACK_DOC_TYPES = [
+  "dev-test-account",
+  "prescription",
+  "opportunity-content-type",
+  "case-content-type",
+  "bills-content-type",
+  "multivalue-content-type",
+  "hfs-base-type",
+];
+
+let docTypesLoaded = false;
+
+function fillDocTypeOptions(types) {
+  const prev = els.uploadDocType.value;
+  els.uploadDocType.innerHTML = "";
+  const placeholder = document.createElement("option");
+  placeholder.value = "";
+  placeholder.disabled = true;
+  placeholder.selected = true;
+  placeholder.textContent = "Select document type…";
+  els.uploadDocType.appendChild(placeholder);
+  for (const t of types) {
+    const opt = document.createElement("option");
+    opt.value = t;
+    opt.textContent = t;
+    els.uploadDocType.appendChild(opt);
+  }
+  // Restore a previous choice if it's still present.
+  if (prev && types.includes(prev)) els.uploadDocType.value = prev;
+}
+
+async function populateDocTypes() {
+  if (docTypesLoaded) return;
+  // Seed with the fallback so the dropdown is never empty.
+  fillDocTypeOptions(FALLBACK_DOC_TYPES);
+  try {
+    const live = await fetchDocumentTypes();
+    if (live.length) {
+      // Merge live types with fallbacks (live first, de-duplicated).
+      const merged = [...new Set([...live, ...FALLBACK_DOC_TYPES])];
+      fillDocTypeOptions(merged);
+    }
+    docTypesLoaded = true;
+  } catch {
+    // Keep the fallback list; user can still pick a valid type.
+  }
 }
 
 function updateSendEnabled() {
@@ -337,8 +396,9 @@ function setContextStatus(text) {
 function renderDocuments(documents) {
   loadedDocuments = documents;
   els.docList.innerHTML = "";
+  els.tabDocuments.textContent = documents.length ? `Documents (${documents.length})` : "Documents";
   if (!documents.length) {
-    setContextStatus("No content linked to this record yet — use Attach or drop a file above.");
+    setContextStatus("No content linked to this record yet — use Attach or drop a file below.");
     return;
   }
   setContextStatus(null);
@@ -423,11 +483,6 @@ function renderMetadata() {
     rows.push(["Type", currentContext.businessObjectType]);
     rows.push(["Record ID", currentContext.businessObjectId]);
   }
-  rows.push(["Documents", String(loadedDocuments.length)]);
-  for (const doc of loadedDocuments) {
-    const attrs = doc.attributes ? Object.entries(doc.attributes) : [];
-    rows.push([doc.name || doc.docId, attrs.length ? attrs.map(([k, v]) => `${k}: ${v}`).join(", ") : doc.docId]);
-  }
   for (const [k, v] of rows) {
     const row = document.createElement("div");
     row.className = "hec__metaRow";
@@ -466,6 +521,7 @@ async function loadContextPanel() {
     els.contextType.textContent = "No record";
     els.contextName.textContent = "—";
     els.contextDesc.textContent = "Open a record page, or preview a UCEB record below.";
+    els.uploadRecordId.value = "";
     els.docList.innerHTML = "";
     loadedDocuments = [];
     els.manualForm.hidden = false;
@@ -480,6 +536,7 @@ async function loadContextPanel() {
   selectTab("documents");
   els.contextType.textContent = currentContext.businessObjectType;
   els.contextName.textContent = currentContext.businessObjectId;
+  els.uploadRecordId.value = currentContext.businessObjectId;
   els.contextDesc.hidden = true;
   els.docList.innerHTML = "";
   setContextStatus("Loading related content…");
@@ -501,8 +558,17 @@ function describeContext(ctx) {
 els.tabDocuments.addEventListener("click", () => selectTab("documents"));
 els.tabMetadata.addEventListener("click", () => selectTab("metadata"));
 
-els.actAttach.addEventListener("click", () => els.fileInput.click());
-els.dropzone.addEventListener("click", () => els.fileInput.click());
+els.actAttach.addEventListener("click", () => els.uploadFileInput.click());
+els.dropzone.addEventListener("click", () => els.uploadFileInput.click());
+
+els.uploadFileInput.addEventListener("change", () => {
+  const chosen = Array.from(els.uploadFileInput.files ?? []);
+  if (chosen.length) {
+    pendingUploadFiles = pendingUploadFiles.concat(chosen);
+    renderUploadFiles();
+  }
+  els.uploadFileInput.value = "";
+});
 
 els.dropzone.addEventListener("dragover", (e) => {
   e.preventDefault();
@@ -514,11 +580,87 @@ els.dropzone.addEventListener("drop", (e) => {
   els.dropzone.classList.remove("is-drag");
   const dropped = Array.from(e.dataTransfer?.files ?? []);
   if (dropped.length) {
-    pendingFiles = pendingFiles.concat(dropped);
-    renderAttachments();
-    updateSendEnabled();
-    els.input.focus();
-    setContextStatus(`${dropped.length} file(s) ready — press send to attach to this record.`);
+    pendingUploadFiles = pendingUploadFiles.concat(dropped);
+    renderUploadFiles();
+  }
+});
+
+function setUploadStatus(text, isError = false) {
+  if (!text) {
+    els.uploadStatus.hidden = true;
+    els.uploadStatus.textContent = "";
+    els.uploadStatus.classList.remove("is-error");
+    return;
+  }
+  els.uploadStatus.hidden = false;
+  els.uploadStatus.textContent = text;
+  els.uploadStatus.classList.toggle("is-error", isError);
+}
+
+function renderUploadFiles() {
+  els.uploadFiles.innerHTML = "";
+  if (!pendingUploadFiles.length) {
+    els.uploadFiles.hidden = true;
+    return;
+  }
+  els.uploadFiles.hidden = false;
+  pendingUploadFiles.forEach((file, index) => {
+    const row = document.createElement("div");
+    row.className = "hec__uploadFile";
+    const name = document.createElement("span");
+    name.textContent = `${file.name} (${formatSize(file.size)})`;
+    const remove = document.createElement("button");
+    remove.type = "button";
+    remove.textContent = "✕";
+    remove.title = "Remove";
+    remove.addEventListener("click", () => {
+      pendingUploadFiles.splice(index, 1);
+      renderUploadFiles();
+    });
+    row.append(name, remove);
+    els.uploadFiles.appendChild(row);
+  });
+}
+
+els.uploadBtn.addEventListener("click", async () => {
+  const docType = els.uploadDocType.value.trim();
+  const recordId = els.uploadRecordId.value.trim();
+  const businessObjectType = currentContext?.businessObjectType || els.contextType.textContent?.trim();
+
+  if (!pendingUploadFiles.length) {
+    setUploadStatus("Choose a file to upload first.", true);
+    return;
+  }
+  if (!docType) {
+    setUploadStatus("Enter a document type.", true);
+    return;
+  }
+  if (!recordId || !businessObjectType || businessObjectType === "No record") {
+    setUploadStatus("No record in context — open a record or load one above first.", true);
+    return;
+  }
+
+  els.uploadBtn.disabled = true;
+  setUploadStatus(`Uploading ${pendingUploadFiles.length} file(s)…`);
+  try {
+    const { uploaded, errors } = await uploadDocuments(
+      { businessObjectType, businessObjectId: recordId },
+      docType,
+      pendingUploadFiles
+    );
+    if (uploaded.length) {
+      setUploadStatus(`Uploaded: ${uploaded.join(", ")}${errors.length ? ` (failed: ${errors.join("; ")})` : ""}`);
+      pendingUploadFiles = [];
+      renderUploadFiles();
+      // Refresh the document list so the new file appears.
+      loadContextPanel();
+    } else {
+      setUploadStatus(`Upload failed: ${errors.join("; ") || "unknown error"}`, true);
+    }
+  } catch (err) {
+    setUploadStatus(`Upload failed: ${err.message}`, true);
+  } finally {
+    els.uploadBtn.disabled = false;
   }
 });
 
@@ -539,6 +681,7 @@ els.manualForm.addEventListener("submit", async (event) => {
   selectTab("documents");
   els.contextType.textContent = businessObjectType;
   els.contextName.textContent = businessObjectId;
+  els.uploadRecordId.value = businessObjectId;
   els.contextDesc.hidden = true;
   els.docList.innerHTML = "";
   setContextStatus("Loading related content…");

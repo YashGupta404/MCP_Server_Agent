@@ -1,0 +1,162 @@
+==============================================================================
+ UCEB AGENT CHATBOT — TEST SCRIPT (prompts + what to expect)
+==============================================================================
+Type each "Prompt:" line into the extension chat. "Expect:" is what a PASS
+looks like. Run them top-to-bottom; later sections depend on earlier ones.
+
+------------------------------------------------------------------------------
+0. BEFORE YOU START (prerequisites)
+------------------------------------------------------------------------------
+- All 4 processes are running:
+    * UCEB API        -> http://localhost:5000
+    * MCP server      -> http://localhost:5200  (--http, signed in at warm-up)
+    * dev tunnel      -> forwards :5200 (Studio MCP URL points at it)
+    * BFF             -> https://localhost:5010
+- The MCP server shows "[Warmup] Pre-authentication complete" in its terminal.
+  (Warm-up token lasts ~15 min; if tools start failing after a while, restart
+   the MCP server and complete the browser sign-in again.)
+- In the browser: reload the extension, open the panel, and SIGN IN.
+  (A BFF restart clears sessions, so sign in again if chat says unauthorized.)
+
+TEST RECORD USED BELOW:
+    businessObjectType = account
+    businessObjectId   = 001gK00001KYoXpQAL
+    document type      = dev-test-account
+(You can swap in any account record id you have; keep the type = account.)
+
+==============================================================================
+1. HEALTH / BUILD / AUTH  (quick smoke tests — no record needed)
+==============================================================================
+Prompt: whats the health of uceb
+Expect: "UCEB is Healthy", a version string.
+
+Prompt: get the build info
+Expect: build/version details returned.
+
+Prompt: what are my token claims
+Expect: claims from your signed-in dev user token (sub, scopes, etc.).
+
+Prompt: what is my authorization status
+Expect: an authorization/permission summary.
+
+==============================================================================
+2. LIST DOCUMENTS  (was the null-bool bug — now fixed)
+==============================================================================
+Prompt: list all documents in record 001gK00001KYoXpQAL type account
+Expect: a list of documents with readable names (e.g. *.txt, *.jpg) and doc ids.
+
+Prompt: list only the documents I uploaded in record 001gK00001KYoXpQAL type account
+Expect: same list filtered to your uploads (best-effort; may be same list).
+
+Prompt: how many documents are in record 001gK00001KYoXpQAL type account
+Expect: a count that matches the list above.
+
+NOTE: The panel's "Documents" tab lists the same docs deterministically
+(without the chatbot). Use it to cross-check.
+
+==============================================================================
+3. VIEW / OPEN A DOCUMENT
+==============================================================================
+Prompt: view the Welcome-Guide document in record 001gK00001KYoXpQAL type account
+Expect: a Hyland viewer URL is returned AND a browser tab opens to the doc.
+        (The agent first lists documents to resolve the doc id, then opens it.)
+
+Prompt: open the invoice document in record 001gK00001KYoXpQAL type account
+Expect: viewer URL + browser tab for that document.
+
+==============================================================================
+4. UPLOAD  (chat-driven)
+==============================================================================
+Prompt: (attach a file with the chat "+", then send)
+        Upload this file to record 001gK00001KYoXpQAL type account with document
+        type dev-test-account
+Expect: "Upload successful" with File, Document Type, Record, and a Document ID.
+
+Then verify:
+Prompt: list all documents in record 001gK00001KYoXpQAL type account
+Expect: the file you just uploaded now appears in the list.
+
+FILE-TYPE TIP: the content platform accepts these extensions:
+    txt, pdf, png, jpg, bmp, tiff, docx, doc
+    (".jpeg" is auto-normalized to ".jpg" by the BFF, so a .jpeg works too.)
+
+==============================================================================
+5. CONFIG — READ (safe, no changes)
+==============================================================================
+Prompt: what business object types are configured
+Expect: a list including "account" (and any others you added).
+
+Prompt: list all document types
+Expect: dev-test-account, prescription, case-content-type, bills-content-type,
+        multivalue-content-type, opportunity-content-type, hfs-base-type, etc.
+
+Prompt: which content platform is configured
+Expect: "CIC" (this dev environment).
+
+Prompt: what platform capabilities are supported
+Expect: a JSON/text list of capabilities.
+
+Prompt: list the document type groups
+Expect: the configured document type groups.
+
+Prompt: get the metadata for document type dev-test-account
+Expect: its attribute fields (should include hfs_Name).
+
+Prompt: show the UCEB solution configuration
+Expect: the full config JSON. (LARGE — if the agent errors on size, that's a
+        response-size limit, not a bug; the smaller reads above are safer.)
+
+Prompt: is feature flag some-flag-key enabled
+Expect: an enabled/disabled result (use a real flag key if you have one).
+
+==============================================================================
+6. CONFIG — WRITE  (real changes to DEV config; use throwaway names)
+==============================================================================
+Prompt: add a business object config for campaign using content type
+        dev-test-account and display column hfs_Name
+Expect: confirmation the mapping was added/updated (append-only upsert).
+
+Then verify the new mapping works end-to-end:
+Prompt: what business object types are configured
+Expect: "campaign" now appears in the list.
+
+Prompt: (attach a file) upload this to record TEST-CAMPAIGN-001 type campaign
+        with document type dev-test-account
+Expect: upload successful with a Document ID.
+
+Prompt: list all documents in record TEST-CAMPAIGN-001 type campaign
+Expect: the file you just uploaded appears (folder is auto-created on first upload).
+
+VIEWER URL (optional — only if you need to change where docs open):
+Prompt: set the viewer url to
+        https://key-a6cbaddb-984f-4c10-afec-f1a579396269.studio.dev.app.hyland.com/hfs-configurations-a94844a0/ui/hyland-for-salesforc-u8fcw/#/default/documents/{doc_id}
+Expect: confirmation with previous + new value. (Must contain {doc_id}.)
+NOTE: The dev viewer URL is already baked into MCP appsettings, so you normally
+      do NOT need this — open_document_in_viewer works without it.
+
+==============================================================================
+7. NEGATIVE / EDGE CHECKS  (should fail cleanly, not crash)
+==============================================================================
+Prompt: list all documents in record DOES-NOT-EXIST-123 type account
+Expect: "No documents found ..." (a clean message, not an error).
+
+Prompt: (attach a .zip or .exe) upload this to record 001gK00001KYoXpQAL type
+        account with document type dev-test-account
+Expect: a clear "file type is not supported" style error (not a false success).
+
+Prompt: upload this to record 001gK00001KYoXpQAL type account with document type
+        not-a-real-type
+Expect: a clear error that the content type is invalid/not configured.
+
+==============================================================================
+TROUBLESHOOTING
+==============================================================================
+- "Agent call failed (400) ... /invoke": a tool threw server-side. Check the
+  MCP server terminal for the "fail:" stack trace; tell me the exact error.
+- "unauthorized" / chat won't respond: sign in again in the panel (BFF session
+  was cleared, e.g. after a BFF restart).
+- Tools hang or time out after ~15 min: MCP warm-up token expired -> restart the
+  MCP server and complete the browser sign-in.
+- Uploaded file doesn't appear: re-run the list prompt; confirm the doc type and
+  record id match what you uploaded to.
+==============================================================================

@@ -274,6 +274,145 @@ app.MapPost("/api/context", async (HttpContext ctx, ContextRequest req) =>
     }
 });
 
+// ---------- List the available UCEB document (content) types for the upload dropdown ----------
+// Deterministic (BFF -> MCP list_document_types); the panel populates its doc-type <select> from this.
+app.MapGet("/api/doctypes", async (HttpContext ctx) =>
+{
+    var sessionId = ctx.Request.Headers["X-BFF-Session"].ToString();
+    if (string.IsNullOrEmpty(sessionId) || !sessions.TryGet(sessionId, out _))
+        return Results.Json(new { error = "not_authenticated" }, statusCode: 401);
+
+    if (string.IsNullOrWhiteSpace(mcp.BaseUrl) || string.IsNullOrWhiteSpace(mcp.ApiKey))
+        return Results.Json(new { error = "mcp_not_configured" }, statusCode: 500);
+
+    try
+    {
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(60));
+        var text = await McpJsonRpc.CallToolAsync(httpFactory, mcp, "list_document_types", new { }, log, cts.Token);
+        var types = McpJsonRpc.ParseDocumentTypes(text);
+        return Results.Json(new { types, raw = text });
+    }
+    catch (Exception ex)
+    {
+        log.LogError(ex, "/api/doctypes failed");
+        return Results.Json(new { error = "doctypes_failed", detail = ex.Message }, statusCode: 502);
+    }
+});
+
+// ---------- Direct upload: attach a file to the record on the browser screen ----------
+// The extension's upload section posts the file bytes + the target record (auto-filled from the
+// detected context) + the chosen document type here. We stage the bytes on the MCP server and then
+// call the `upload_staged_file` tool DIRECTLY (deterministic JSON-RPC, no LLM) — this is the same
+// staging path /api/chat uses, but without going through the agent.
+app.MapPost("/api/upload", async (HttpContext ctx, UploadRequest req) =>
+{
+    var sessionId = ctx.Request.Headers["X-BFF-Session"].ToString();
+    if (string.IsNullOrEmpty(sessionId) || !sessions.TryGet(sessionId, out _))
+        return Results.Json(new { error = "not_authenticated" }, statusCode: 401);
+
+    if (string.IsNullOrWhiteSpace(req.BusinessObjectId) || string.IsNullOrWhiteSpace(req.BusinessObjectType))
+        return Results.Json(new { error = "missing_fields", detail = "businessObjectId and businessObjectType are required." }, statusCode: 400);
+
+    if (string.IsNullOrWhiteSpace(req.EcmContentTypeName))
+        return Results.Json(new { error = "missing_docType", detail = "A document type is required." }, statusCode: 400);
+
+    if (req.Attachments is not { Length: > 0 })
+        return Results.Json(new { error = "no_file", detail = "Attach at least one file to upload." }, statusCode: 400);
+
+    if (string.IsNullOrWhiteSpace(mcp.BaseUrl) || string.IsNullOrWhiteSpace(mcp.ApiKey))
+        return Results.Json(new { error = "mcp_not_configured", detail = "Mcp:BaseUrl / Mcp:ApiKey is not configured on the BFF." }, statusCode: 500);
+
+    var stagingUrl = $"{mcp.BaseUrl.TrimEnd('/')}/staging/upload";
+    var stageHttp = httpFactory.CreateClient();
+    stageHttp.Timeout = TimeSpan.FromSeconds(120);
+
+    var uploaded = new List<string>();
+    var errors = new List<string>();
+
+    foreach (var att in req.Attachments!)
+    {
+        if (att is null || string.IsNullOrWhiteSpace(att.DataBase64))
+            continue;
+
+        var originalName = string.IsNullOrWhiteSpace(att.Name) ? "upload" : Path.GetFileName(att.Name);
+        // The content platform validates the upload by its filename EXTENSION and accepts "jpg" but not
+        // "jpeg" (both are image/jpeg) -> normalize so a valid JPEG named *.jpeg still uploads.
+        var stagedName = NormalizeUploadExtension(originalName);
+
+        // 1) stage the bytes on the MCP server
+        string? stagingId = null;
+        try
+        {
+            using var stageReq = new HttpRequestMessage(HttpMethod.Post, stagingUrl);
+            stageReq.Headers.TryAddWithoutValidation(mcp.HeaderName, mcp.ApiKey);
+            stageReq.Content = new StringContent(
+                JsonSerializer.Serialize(new { fileName = stagedName, mime = att.Mime, dataBase64 = att.DataBase64 }),
+                Encoding.UTF8, "application/json");
+            var stageResp = await stageHttp.SendAsync(stageReq);
+            var stageBody = await stageResp.Content.ReadAsStringAsync();
+            if (!stageResp.IsSuccessStatusCode)
+            {
+                log.LogError("/api/upload: staging failed for {Original} {Status}: {Body}", originalName, (int)stageResp.StatusCode, stageBody);
+                errors.Add($"{originalName}: staging failed ({(int)stageResp.StatusCode})");
+                continue;
+            }
+            using var stageDoc = JsonDocument.Parse(stageBody);
+            stagingId = stageDoc.RootElement.TryGetProperty("stagingId", out var idEl) ? idEl.GetString() : null;
+        }
+        catch (Exception ex)
+        {
+            log.LogError(ex, "/api/upload: error staging {Original}", originalName);
+            errors.Add($"{originalName}: {ex.Message}");
+            continue;
+        }
+
+        if (string.IsNullOrEmpty(stagingId))
+        {
+            errors.Add($"{originalName}: no stagingId returned");
+            continue;
+        }
+
+        // 2) call upload_staged_file directly
+        try
+        {
+            using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(120));
+            var (text, isError) = await McpJsonRpc.CallToolWithStatusAsync(httpFactory, mcp, "upload_staged_file", new
+            {
+                stagingId,
+                businessObjectId = req.BusinessObjectId,
+                businessObjectType = req.BusinessObjectType,
+                ecmContentTypeName = req.EcmContentTypeName,
+                documentName = stagedName,
+            }, log, cts.Token);
+
+            // The MCP call can succeed at the JSON-RPC level while the tool itself reports a failure
+            // (either via isError or an error message in the text). Only count a REAL success.
+            if (isError || UploadTextIndicatesFailure(text))
+            {
+                var detail = string.IsNullOrWhiteSpace(text) ? "the upload tool reported an error" : text.Trim();
+                log.LogError("/api/upload: upload_staged_file reported failure for {Original}: {Result}", originalName, text);
+                errors.Add($"{originalName}: {detail}");
+            }
+            else
+            {
+                uploaded.Add(originalName);
+                log.LogInformation("/api/upload: uploaded {Original} to {Type}/{Id} as {DocType}: {Result}",
+                    originalName, req.BusinessObjectType, req.BusinessObjectId, req.EcmContentTypeName, text);
+            }
+        }
+        catch (Exception ex)
+        {
+            log.LogError(ex, "/api/upload: upload_staged_file failed for {Original}", originalName);
+            errors.Add($"{originalName}: {ex.Message}");
+        }
+    }
+
+    if (uploaded.Count == 0)
+        return Results.Json(new { error = "upload_failed", detail = string.Join("; ", errors) }, statusCode: 502);
+
+    return Results.Json(new { uploaded, errors });
+});
+
 // ---------- Open a document in the Hyland viewer (deterministic; returns the viewer URL) ----------
 app.MapPost("/api/viewer", async (HttpContext ctx, ViewerRequest req) =>
 {
@@ -318,6 +457,51 @@ app.MapPost("/auth/logout", (HttpContext ctx) =>
 app.Run();
 
 // ================= helpers =================
+
+// The content platform validates uploads by filename extension and rejects some aliases even though the
+// bytes/mime are valid (it accepts "jpg" but not "jpeg", "tiff" but not "tif"). Normalize known-problem
+// extensions to the accepted spelling so a correctly-formed file still uploads. Byte content is unchanged.
+static string NormalizeUploadExtension(string fileName)
+{
+    if (string.IsNullOrWhiteSpace(fileName)) return fileName;
+    var ext = Path.GetExtension(fileName);
+    if (string.IsNullOrEmpty(ext)) return fileName;
+    var replacement = ext.ToLowerInvariant() switch
+    {
+        ".jpeg" => ".jpg",
+        ".tif" => ".tiff",
+        _ => null,
+    };
+    if (replacement is null) return fileName;
+    return fileName[..^ext.Length] + replacement;
+}
+
+// Heuristic: does the upload_staged_file tool's text response describe a FAILURE rather than a
+// successful upload? MCP tools sometimes return isError=false while embedding an error message in
+// the text (e.g. content-type validation), so we also scan the text for known failure phrases.
+static bool UploadTextIndicatesFailure(string? text)
+{
+    if (string.IsNullOrWhiteSpace(text)) return true; // no confirmation => treat as failure
+    var t = text.ToLowerInvariant();
+
+    // Failure phrases first (whole words/phrases only — NEVER bare HTTP codes like "401",
+    // which match digits inside GUIDs/ids and cause false positives on success messages).
+    string[] failureMarkers =
+    {
+        "does not exist", "is required", "not configured", "no lob", "missing lob",
+        "please provide", "not supported", "failed", "failure", "exception", "denied",
+        "unauthorized", "forbidden", "could not", "couldn't", "unable to",
+        "not allowed", "not found", "rejected", "badrequest", "bad request",
+    };
+    foreach (var m in failureMarkers)
+        if (t.Contains(m)) return true;
+
+    // Positive success signal: upload_staged_file returns the new documentId (and "attached it to").
+    if (t.Contains("documentid") || t.Contains("attached it to")) return false;
+
+    // No clear success signal and no failure phrase -> treat as failure (require real confirmation).
+    return true;
+}
 
 // AgentResponse.output is an array of items: type "message" (assistant text) or
 // type "function_call". We surface the assistant text from output[].content[] where
@@ -366,6 +550,16 @@ static class McpJsonRpc
         IHttpClientFactory httpFactory, McpOptions mcp, string toolName, object arguments,
         ILogger log, CancellationToken ct)
     {
+        var (text, _) = await CallToolWithStatusAsync(httpFactory, mcp, toolName, arguments, log, ct);
+        return text;
+    }
+
+    // Like CallToolAsync but also returns the tool's isError flag from the JSON-RPC result, so callers
+    // (e.g. upload) can tell a real success from a tool that ran but reported a failure in its text.
+    public static async Task<(string Text, bool IsError)> CallToolWithStatusAsync(
+        IHttpClientFactory httpFactory, McpOptions mcp, string toolName, object arguments,
+        ILogger log, CancellationToken ct)
+    {
         if (string.IsNullOrWhiteSpace(mcp.BaseUrl))
             throw new InvalidOperationException("Mcp:BaseUrl is not configured.");
 
@@ -407,7 +601,10 @@ static class McpJsonRpc
                     sb.Append(s);
             }
         }
-        return sb.ToString();
+
+        var isError = result.TryGetProperty("isError", out var errEl) &&
+            errEl.ValueKind == JsonValueKind.True;
+        return (sb.ToString(), isError);
     }
 
     private static async Task<(JsonElement? Result, string? SessionId)> PostRequestAsync(
@@ -563,6 +760,50 @@ static class McpJsonRpc
         return docs.ToArray();
     }
 
+    // Extracts document (content) type names from the list_document_types tool text. The tool's
+    // output format isn't strictly specified, so this is tolerant: it handles bullet lists,
+    // comma-separated single lines, and "name:"/"id:" prefixed lines, returning a de-duplicated set.
+    public static string[] ParseDocumentTypes(string text)
+    {
+        var found = new List<string>();
+        if (string.IsNullOrWhiteSpace(text)) return found.ToArray();
+
+        void Add(string? token)
+        {
+            if (string.IsNullOrWhiteSpace(token)) return;
+            var t = token.Trim().Trim('"', '\'', '.', ',', ';', ':').Trim();
+            // A content type name is a single word (no spaces), letters/digits/._- , reasonable length.
+            if (t.Length is < 2 or > 64) return;
+            if (t.Contains(' ')) return;
+            if (!System.Text.RegularExpressions.Regex.IsMatch(t, "^[A-Za-z][A-Za-z0-9._-]+$")) return;
+            if (found.Any(x => string.Equals(x, t, StringComparison.OrdinalIgnoreCase))) return;
+            found.Add(t);
+        }
+
+        foreach (var rawLine in text.Split('\n'))
+        {
+            var line = rawLine.Trim();
+            if (line.Length == 0) continue;
+            // Strip common bullet / numbering prefixes.
+            line = System.Text.RegularExpressions.Regex.Replace(line, @"^\s*([-*•]|\d+[.)])\s*", "");
+            // If a line has "name:" / "id:" / "type:", take what's after the colon.
+            var colon = line.IndexOf(':');
+            if (colon >= 0 && colon < 12)
+            {
+                var prefix = line[..colon].Trim().ToLowerInvariant();
+                if (prefix is "name" or "id" or "type" or "documenttype")
+                    line = line[(colon + 1)..].Trim();
+            }
+            // Comma-separated values on one line.
+            if (line.Contains(','))
+                foreach (var part in line.Split(','))
+                    Add(part);
+            else
+                Add(line);
+        }
+        return found.ToArray();
+    }
+
     // Pulls the first http(s) URL out of a tool's text response (e.g. the viewer URL).
     public static string? ExtractUrl(string text)
     {
@@ -656,6 +897,8 @@ sealed record ChatRequest(string Message, string? ConversationId, ChatAttachment
 sealed record ChatAttachment(string? Name, string? Mime, string DataBase64);
 
 sealed record ContextRequest(string BusinessObjectType, string BusinessObjectId, bool? OnlyMine);
+
+sealed record UploadRequest(string BusinessObjectType, string BusinessObjectId, string EcmContentTypeName, ChatAttachment[]? Attachments);
 
 sealed record ViewerRequest(string DocId);
 

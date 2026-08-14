@@ -51,16 +51,11 @@ body {
 }
 
 .brand__mark {
-  display: grid;
-  place-items: center;
   width: 34px;
   height: 34px;
   border-radius: var(--radius);
-  background: var(--accent);
-  color: var(--accent-ink);
-  font-weight: 700;
-  font-size: 16px;
-  letter-spacing: 0.5px;
+  object-fit: contain;
+  background: #fff;
 }
 
 .brand__text {
@@ -635,10 +630,72 @@ body {
   color: var(--accent);
 }
 
+.hec__sep {
+  height: 1px;
+  margin: 4px 0 12px;
+  background: var(--line);
+}
+
+/* upload section */
+.hec__upload {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.hec__uploadTitle {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--text);
+  text-transform: uppercase;
+  letter-spacing: 0.6px;
+}
+
+.hec__upload .hec__drop {
+  margin-bottom: 0;
+}
+
+.hec__uploadFiles {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 12px;
+  color: var(--text);
+}
+
+.hec__uploadFile {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 6px 9px;
+  background: #f7f8fb;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+}
+
+.hec__uploadFile button {
+  border: none;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 14px;
+  line-height: 1;
+}
+
+.hec__upload .hec__actions {
+  display: flex;
+  gap: 8px;
+}
+
 .context__status {
   margin: 4px 0 10px;
   font-size: 12px;
   color: var(--muted);
+}
+
+.context__status.is-error {
+  color: #c0392b;
 }
 
 .hec__meta {
@@ -668,7 +725,8 @@ body {
 .manual {
   display: flex;
   gap: 6px;
-  margin-bottom: 12px;
+  margin-top: 10px;
+  margin-bottom: 14px;
 }
 
 .manual__input {
@@ -686,6 +744,12 @@ body {
 .manual__input:focus {
   outline: none;
   border-color: var(--accent);
+}
+
+.hec__select {
+  cursor: pointer;
+  background: var(--bg);
+  appearance: auto;
 }
 
 /* document rows */
