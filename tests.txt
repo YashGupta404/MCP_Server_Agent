@@ -64,6 +64,12 @@ Expect: a Hyland viewer URL is returned AND a browser tab opens to the doc.
 Prompt: open the invoice document in record 001gK00001KYoXpQAL type account
 Expect: viewer URL + browser tab for that document.
 
+PANEL (deterministic): click a document row in the "Documents" list.
+Expect: the Hyland viewer opens INSIDE the plugin window (an in-panel overlay
+        with a Back button), NOT a new browser tab. If the viewer refuses to
+        embed, a fallback "Open in a new tab" prompt appears. Back returns to
+        the document list.
+
 ==============================================================================
 4. UPLOAD  (chat-driven)
 ==============================================================================

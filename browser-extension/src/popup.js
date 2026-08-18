@@ -40,6 +40,15 @@ const els = {
   uploadRecordId: document.getElementById("uploadRecordId"),
   uploadBtn: document.getElementById("uploadBtn"),
   uploadStatus: document.getElementById("uploadStatus"),
+  viewerOverlay: document.getElementById("viewerOverlay"),
+  viewerFrame: document.getElementById("viewerFrame"),
+  viewerLoading: document.getElementById("viewerLoading"),
+  viewerBack: document.getElementById("viewerBack"),
+  viewerTitle: document.getElementById("viewerTitle"),
+  viewerOpenTab: document.getElementById("viewerOpenTab"),
+  viewerFallback: document.getElementById("viewerFallback"),
+  viewerFallbackLink: document.getElementById("viewerFallbackLink"),
+  viewerFallbackWindow: document.getElementById("viewerFallbackWindow"),
 };
 
 // Documents currently shown in the panel (used by the Metadata tab).
@@ -442,8 +451,10 @@ function renderDocuments(documents) {
       li.style.opacity = "0.6";
       try {
         const url = await openInViewer(doc.docId);
-        await ext.tabs.create({ url });
+        console.log("[viewer] HxViewer url for", doc.docId, "->", url);
+        openViewer(url, doc.name || doc.docId);
       } catch (err) {
+        console.error("[viewer] openInViewer failed:", err);
         setContextStatus(`Open failed: ${err.message}`);
       } finally {
         li.style.opacity = "";
@@ -554,9 +565,89 @@ function describeContext(ctx) {
   return `A specific ${ctx.businessObjectType} record's content, stored in the CIC Workspace via ${src}.`;
 }
 
+// ---- in-panel Hyland document viewer ----
+// Opens the resolved viewer URL inside the plugin window (an iframe overlay) instead
+// of a new browser tab. If the viewer refuses to be embedded (X-Frame-Options / CSP)
+// or never loads, we fall back to a dedicated extension viewer window.
+let viewerLoadTimer = null;
+let currentViewerUrl = null;
+
+function openViewer(url, title) {
+  if (!url) {
+    console.warn("[viewer] openViewer called with empty url");
+    return;
+  }
+  console.log("[viewer] openViewer ->", url);
+  currentViewerUrl = url;
+  els.viewerTitle.textContent = title || "Document";
+  els.viewerOpenTab.href = url;
+  els.viewerFallbackLink.href = url;
+  els.viewerFallback.hidden = true;
+  els.viewerLoading.hidden = false;
+  els.viewerFrame.hidden = false;
+  els.viewerOverlay.hidden = false;
+
+  clearTimeout(viewerLoadTimer);
+  // The Hyland viewer is an SPA on a slow dev network, so give it a generous window
+  // before offering the fallback. A real framing block never fires 'load' at all.
+  viewerLoadTimer = setTimeout(showViewerFallback, 30000);
+  els.viewerFrame.src = url;
+}
+
+// After a long wait, offer the fallback as an escape hatch WITHOUT tearing down the
+// frame — it may still be loading behind, and onViewerLoaded will recover it.
+function showViewerFallback() {
+  console.warn("[viewer] fallback offered (iframe still not loaded after 30s)");
+  clearTimeout(viewerLoadTimer);
+  els.viewerLoading.hidden = true;
+  els.viewerFallback.hidden = false;
+}
+
+// The iframe finished loading (possibly after a slow start). Clear the watchdog and
+// reveal the frame, hiding the spinner and any fallback that was shown.
+function onViewerLoaded() {
+  console.log("[viewer] iframe 'load' fired for", els.viewerFrame.src);
+  clearTimeout(viewerLoadTimer);
+  if (els.viewerOverlay.hidden) return;
+  if (els.viewerFrame.src === "about:blank") return;
+  els.viewerLoading.hidden = true;
+  els.viewerFallback.hidden = true;
+  els.viewerFrame.hidden = false;
+}
+
+// Opens the viewer in a dedicated, resizable extension-owned window (not a scattered
+// browser tab). Auth works here because it's a first-party navigation.
+function openInWindow(url) {
+  if (!url) return;
+  ext.windows.create({ url, type: "popup", width: 1100, height: 850 });
+}
+
+function closeViewer() {
+  clearTimeout(viewerLoadTimer);
+  els.viewerOverlay.hidden = true;
+  els.viewerFrame.src = "about:blank";
+  els.viewerLoading.hidden = true;
+  els.viewerFallback.hidden = true;
+  currentViewerUrl = null;
+}
+
 // ---- panel actions (Attach / History / Extract / tabs / drag-drop) ----
 els.tabDocuments.addEventListener("click", () => selectTab("documents"));
 els.tabMetadata.addEventListener("click", () => selectTab("metadata"));
+
+els.viewerBack.addEventListener("click", closeViewer);
+els.viewerFallbackLink.addEventListener("click", closeViewer);
+els.viewerFallbackWindow.addEventListener("click", () => {
+  openInWindow(currentViewerUrl);
+  closeViewer();
+});
+els.viewerOpenTab.addEventListener("click", closeViewer);
+// A successful embed fires load; frames blocked by X-Frame-Options do not, so the
+// timeout is what surfaces the fallback in that case.
+els.viewerFrame.addEventListener("load", onViewerLoaded);
+document.addEventListener("keydown", (e) => {
+  if (e.key === "Escape" && !els.viewerOverlay.hidden) closeViewer();
+});
 
 els.actAttach.addEventListener("click", () => els.uploadFileInput.click());
 els.dropzone.addEventListener("click", () => els.uploadFileInput.click());
