@@ -167,18 +167,25 @@
         </a>
       </div>
       <div class="viewer__body">
-        <iframe id="viewerFrame" class="viewer__frame" title="Hyland document viewer" referrerpolicy="no-referrer-when-downgrade" allow="clipboard-read; clipboard-write; fullscreen"></iframe>
+        <canvas id="viewerCanvas" class="viewer__canvas" hidden></canvas>
+        <img id="viewerImage" class="viewer__image" alt="Document preview" hidden />
+        <iframe id="viewerFrame" class="viewer__frame" title="Hyland document viewer" referrerpolicy="no-referrer-when-downgrade" allow="clipboard-read; clipboard-write; fullscreen" hidden></iframe>
         <div id="viewerLoading" class="viewer__loading" hidden>
           <div class="viewer__spinner" aria-hidden="true"></div>
           <p class="viewer__loadingText">Loading document…</p>
           <p class="viewer__loadingHint">The dev viewer can take a little while on this network.</p>
         </div>
         <div id="viewerFallback" class="viewer__fallback" hidden>
-          <p class="viewer__fallbackTitle">This is taking longer than expected.</p>
-          <p class="viewer__fallbackHint">The document may still be loading in the panel. You can keep waiting, or open it in a dedicated viewer window.</p>
+          <p class="viewer__fallbackTitle">Preview not available.</p>
+          <p class="viewer__fallbackHint">This document doesn't have a rendered preview yet. You can open it in a dedicated viewer window instead.</p>
           <button id="viewerFallbackWindow" class="hec__act hec__act--primary" type="button">Open in viewer window</button>
           <a id="viewerFallbackLink" class="viewer__fallbackTab" href="#" target="_blank" rel="noopener noreferrer">or open in a new tab</a>
         </div>
+      </div>
+      <div id="viewerPager" class="viewer__pager" hidden>
+        <button id="viewerPrev" class="viewer__pagebtn" type="button" title="Previous page" aria-label="Previous page">‹</button>
+        <span id="viewerPageLabel" class="viewer__pagelabel">Page 1</span>
+        <button id="viewerNext" class="viewer__pagebtn" type="button" title="Next page" aria-label="Next page">›</button>
       </div>
     </section>
 

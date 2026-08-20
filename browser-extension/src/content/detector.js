@@ -28,7 +28,10 @@
     incident: "incident",
     change_request: "change_request",
     sc_req_item: "sc_req_item",
-    // Workday / Outlook fall back to their raw type name.
+    // Workday worker/detail pages -> "employee".
+    employee: "employee",
+    worker: "employee",
+    // Workday / Outlook otherwise fall back to their raw type name.
   };
 
   function normalizeType(rawType) {
@@ -71,11 +74,36 @@
     return null;
   }
 
-  // Workday: object type + id are usually opaque; best effort from the URL fragment.
+  // Workday: the Hyland "Employee Documents" experience embeds the worker's UCEB WID (a 32-hex id)
+  // directly in the URL, e.g.
+  //   .../d/wday/app/<app>/<app>/employeeDocuments/4bc212416f234ba1b4749e4bebe4c2eb.htmld
+  // That WID is the id UCEB actually keys a worker's documents on (both list and capture), so we
+  // extract it and use it verbatim. (The older "/inst/1$37/247$21" instance ref in some Workday
+  // URLs is NOT the WID and does not resolve to a real worker, so it's only a last-resort fallback.)
   function detectWorkday(loc) {
-    const m = loc.hash.match(/\/([A-Za-z_]+)\/([A-Za-z0-9$-]+)(?:[/?]|$)/);
-    if (m) {
-      return { rawType: m[1], businessObjectId: m[2], displayName: document.title.trim() };
+    const href = loc.href;
+
+    // 1) Explicit employeeDocuments/<wid> path — the reliable, proven key.
+    const docMatch = href.match(/\/employeeDocuments\/([0-9a-fA-F]{32})(?:\.html?d?)?/i);
+    if (docMatch) {
+      return { rawType: "employee", businessObjectId: docMatch[1].toLowerCase(), displayName: document.title.trim() };
+    }
+
+    // 2) Any bare 32-hex WID segment elsewhere in the path/hash (other worker document views).
+    const widMatch = (loc.pathname + loc.hash).match(/(?:^|[/$])([0-9a-fA-F]{32})(?:\.html?d?)?(?:[/?#]|$)/);
+    if (widMatch) {
+      return { rawType: "employee", businessObjectId: widMatch[1].toLowerCase(), displayName: document.title.trim() };
+    }
+
+    // 3) Fallback: the Workday instance ref after "/inst/" (e.g. "1$37/247$21"). NOT the real WID,
+    //    so it lists no documents against a real worker — kept only so detection never silently fails.
+    const source = loc.hash && loc.hash.length > 1 ? loc.hash : loc.pathname;
+    const instMatch = source.match(/\/inst\/([^?#]+?)(?:\.htmld?)?(?:[?#]|$)/i);
+    if (instMatch && instMatch[1]) {
+      const businessObjectId = instMatch[1].replace(/[^A-Za-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
+      if (businessObjectId) {
+        return { rawType: "employee", businessObjectId, displayName: document.title.trim() };
+      }
     }
     return null;
   }

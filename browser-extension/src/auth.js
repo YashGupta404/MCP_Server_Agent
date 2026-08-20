@@ -71,7 +71,13 @@ export async function interactiveLogin() {
       state,
       code_challenge: challenge,
       code_challenge_method: "S256",
+      // Force a fresh credential entry instead of silently reusing a cached SSO session.
       prompt: "login",
+      // Force the LOCAL Hyland IAM login form (username/password) and skip the external Microsoft
+      // IdP auto-redirect. This is the standard IdentityServer/Duende hint (idp:local restricts the
+      // login UI to the local account store) and is required to sign in with a native IAM account
+      // such as the appintel dev account, which does not exist in the federated Microsoft tenant.
+      acr_values: "idp:local",
     }).toString();
 
   const redirectResponse = await ext.identity.launchWebAuthFlow({

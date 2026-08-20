@@ -28,3 +28,7 @@ Thumbs.db
 
 # ---- Misc ----
 *.tmp
+
+# Postman collections (may contain staging tokens / secrets — never commit)
+*.postman_collection.json
+*.postman_environment.json

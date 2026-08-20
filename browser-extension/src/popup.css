@@ -904,6 +904,72 @@ body {
   display: block;
 }
 
+.viewer__image {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  display: block;
+  background: var(--panel-2);
+}
+
+.viewer__image[hidden] {
+  display: none;
+}
+
+.viewer__canvas {
+  display: block;
+  margin: 0 auto;
+  max-width: 100%;
+  background: #fff;
+}
+
+.viewer__canvas[hidden] {
+  display: none;
+}
+
+.viewer__pager {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  padding: 6px 10px;
+  border-top: 1px solid var(--border, rgba(255, 255, 255, 0.08));
+  background: var(--panel-1, var(--panel-2));
+}
+
+.viewer__pager[hidden] {
+  display: none;
+}
+
+.viewer__pagebtn {
+  min-width: 34px;
+  height: 28px;
+  border: 1px solid var(--border, rgba(255, 255, 255, 0.15));
+  border-radius: 6px;
+  background: transparent;
+  color: inherit;
+  font-size: 18px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.viewer__pagebtn:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.viewer__pagebtn:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.viewer__pagelabel {
+  font-size: 12px;
+  opacity: 0.8;
+  min-width: 60px;
+  text-align: center;
+}
+
 .viewer__loading {
   position: absolute;
   inset: 0;

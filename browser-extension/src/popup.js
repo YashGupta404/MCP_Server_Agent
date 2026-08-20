@@ -1,7 +1,13 @@
 // Popup chat controller: wires the UI to auth.js + agent.js.
 
 import { interactiveLogin, getSession, clearTokens } from "./auth.js";
-import { sendMessageToAgent, fetchContextDocuments, openInViewer, uploadDocuments, fetchDocumentTypes } from "./agent.js";
+import { sendMessageToAgent, fetchContextDocuments, openInViewer, fetchDocumentPreview, fetchDocumentContent, uploadDocuments, captureDocument, fetchDocumentTypes } from "./agent.js";
+
+import * as pdfjsLib from "./lib/pdf.mjs";
+
+// PDF.js needs to know where to load its worker. In MV3 extensions the worker
+// must be a local file declared in web_accessible_resources.
+pdfjsLib.GlobalWorkerOptions.workerSrc = chrome.runtime.getURL("src/lib/pdf.worker.min.mjs");
 
 const ext = globalThis.browser ?? globalThis.chrome;
 
@@ -42,6 +48,8 @@ const els = {
   uploadStatus: document.getElementById("uploadStatus"),
   viewerOverlay: document.getElementById("viewerOverlay"),
   viewerFrame: document.getElementById("viewerFrame"),
+  viewerCanvas: document.getElementById("viewerCanvas"),
+  viewerImage: document.getElementById("viewerImage"),
   viewerLoading: document.getElementById("viewerLoading"),
   viewerBack: document.getElementById("viewerBack"),
   viewerTitle: document.getElementById("viewerTitle"),
@@ -49,6 +57,10 @@ const els = {
   viewerFallback: document.getElementById("viewerFallback"),
   viewerFallbackLink: document.getElementById("viewerFallbackLink"),
   viewerFallbackWindow: document.getElementById("viewerFallbackWindow"),
+  viewerPager: document.getElementById("viewerPager"),
+  viewerPrev: document.getElementById("viewerPrev"),
+  viewerNext: document.getElementById("viewerNext"),
+  viewerPageLabel: document.getElementById("viewerPageLabel"),
 };
 
 // Documents currently shown in the panel (used by the Metadata tab).
@@ -273,27 +285,21 @@ function setSignedIn(state) {
   if (state) populateDocTypes();
 }
 
-// Known dev content types used as a fallback if the live list can't be fetched.
-const FALLBACK_DOC_TYPES = [
-  "dev-test-account",
-  "prescription",
-  "opportunity-content-type",
-  "case-content-type",
-  "bills-content-type",
-  "multivalue-content-type",
-  "hfs-base-type",
-];
+// Document types are LOB-specific (Salesforce vs Workday etc.), so we do NOT hardcode a list —
+// they are fetched live from the backend (MCP list_document_types), which reflects whichever LOB
+// the signed-in token routes to. For Workday this returns e.g. bp-attachments, employee-application,
+// new-hire-checklist; for Salesforce the CIC content types.
 
 let docTypesLoaded = false;
 
-function fillDocTypeOptions(types) {
+function fillDocTypeOptions(types, placeholderText = "Select document type…") {
   const prev = els.uploadDocType.value;
   els.uploadDocType.innerHTML = "";
   const placeholder = document.createElement("option");
   placeholder.value = "";
   placeholder.disabled = true;
   placeholder.selected = true;
-  placeholder.textContent = "Select document type…";
+  placeholder.textContent = placeholderText;
   els.uploadDocType.appendChild(placeholder);
   for (const t of types) {
     const opt = document.createElement("option");
@@ -305,20 +311,26 @@ function fillDocTypeOptions(types) {
   if (prev && types.includes(prev)) els.uploadDocType.value = prev;
 }
 
+// Document types that require a Workday business-process context (extra attributes like
+// businessprocessattachmentid/businessprocessname) and therefore can't be uploaded standalone
+// from this panel — capturing them NREs before the document is stored. Hide them from the picker.
+const UNSUPPORTED_UPLOAD_DOC_TYPES = new Set(["bp-attachments"]);
+
 async function populateDocTypes() {
   if (docTypesLoaded) return;
-  // Seed with the fallback so the dropdown is never empty.
-  fillDocTypeOptions(FALLBACK_DOC_TYPES);
+  fillDocTypeOptions([], "Loading document types…");
   try {
-    const live = await fetchDocumentTypes();
+    const live = (await fetchDocumentTypes()).filter((t) => !UNSUPPORTED_UPLOAD_DOC_TYPES.has(t));
     if (live.length) {
-      // Merge live types with fallbacks (live first, de-duplicated).
-      const merged = [...new Set([...live, ...FALLBACK_DOC_TYPES])];
-      fillDocTypeOptions(merged);
+      fillDocTypeOptions(live);
+      docTypesLoaded = true;
+    } else {
+      // Leave a clear message and allow a later retry (don't mark as loaded).
+      fillDocTypeOptions([], "No document types found");
     }
-    docTypesLoaded = true;
   } catch {
-    // Keep the fallback list; user can still pick a valid type.
+    // Allow a retry on the next sign-in / panel load rather than showing wrong types.
+    fillDocTypeOptions([], "Couldn't load document types");
   }
 }
 
@@ -433,7 +445,7 @@ function renderDocuments(documents) {
     const sub = document.createElement("div");
     sub.className = "docrow__sub";
     sub.textContent = attrs.length
-      ? attrs.map(([, v]) => v).join(" • ")
+      ? `${attrs.map(([, v]) => v).join(" • ")} • docId ${doc.docId}`
       : `docId ${doc.docId}`;
     body.append(name, sub);
 
@@ -450,11 +462,13 @@ function renderDocuments(documents) {
     li.addEventListener("click", async () => {
       li.style.opacity = "0.6";
       try {
-        const url = await openInViewer(doc.docId);
-        console.log("[viewer] HxViewer url for", doc.docId, "->", url);
-        openViewer(url, doc.name || doc.docId);
+        // Render the document INSIDE the panel as an image blob (BFF -> MCP -> UCEB file-preview).
+        // This works for BOTH Salesforce and Workday and avoids the login-gated viewer SPA, which
+        // can't get a session cookie in a cross-site iframe. Docs with no rendition fall back to
+        // opening the first-party viewer in a window/tab.
+        await openDocumentPreview(doc);
       } catch (err) {
-        console.error("[viewer] openInViewer failed:", err);
+        console.error("[viewer] openDocumentPreview failed:", err);
         setContextStatus(`Open failed: ${err.message}`);
       } finally {
         li.style.opacity = "";
@@ -572,6 +586,180 @@ function describeContext(ctx) {
 let viewerLoadTimer = null;
 let currentViewerUrl = null;
 
+// ---- In-panel document viewer ----
+// Salesforce: fetches raw bytes → PDF.js renders on <canvas>; handles all pages.
+// Workday:    fetches image rendition (captureSuccessPreview) for docs that have one;
+//             for docs without a rendition → offers to open the Studio viewer first-party.
+let currentPreviewDocId = null;
+let currentPreviewPage = 1;
+let currentPreviewObjectUrl = null; // blob: URL for Workday image track — revoke on close
+let pdfDoc = null;                  // PDF.js document instance — destroy on close
+let pdfRenderTask = null;           // active render task — cancel before switching page
+let currentViewerTrack = null;      // "pdf" | "image" | "viewer"
+
+function revokePreviewUrl() {
+  if (currentPreviewObjectUrl) {
+    URL.revokeObjectURL(currentPreviewObjectUrl);
+    currentPreviewObjectUrl = null;
+  }
+}
+
+async function destroyPdf() {
+  if (pdfRenderTask) { try { pdfRenderTask.cancel(); } catch {} pdfRenderTask = null; }
+  if (pdfDoc) { try { await pdfDoc.destroy(); } catch {} pdfDoc = null; }
+}
+
+// Entry point: try PDF.js (bytes) first; fall back to image preview; fall back to viewer URL.
+async function openDocumentPreview(doc) {
+  currentPreviewDocId = doc.docId;
+  currentPreviewPage = 1;
+  currentViewerTrack = null;
+  await destroyPdf();
+  revokePreviewUrl();
+
+  els.viewerTitle.textContent = doc.name || doc.docId;
+  els.viewerFallback.hidden = true;
+  els.viewerCanvas.hidden = true;
+  els.viewerImage.hidden = true;
+  els.viewerFrame.hidden = true;
+  els.viewerPager.hidden = true;
+  els.viewerLoading.hidden = false;
+  els.viewerOverlay.hidden = false;
+
+  try {
+    const result = await fetchDocumentContent(doc.docId);
+
+    if (result.type === "bytes") {
+      const ctype = (result.contentType || "").toLowerCase();
+      if (ctype.includes("image")) {
+        // Image content (png/jpg/etc.) — render directly in <img>, not PDF.js
+        currentViewerTrack = "image-bytes";
+        revokePreviewUrl();
+        currentPreviewObjectUrl = result.objectUrl;
+        els.viewerImage.src = result.objectUrl;
+        els.viewerImage.hidden = false;
+        els.viewerLoading.hidden = true;
+        els.viewerPager.hidden = true;
+      } else {
+        // PDF bytes — PDF.js path
+        currentViewerTrack = "pdf";
+        await renderPdfPage(result.objectUrl, 1);
+      }
+    } else {
+      // Workday: viewer URL — try image preview first, offer viewer as fallback
+      currentViewerUrl = result.viewerUrl;
+      els.viewerOpenTab.href = result.viewerUrl;
+      els.viewerFallbackLink.href = result.viewerUrl;
+      currentViewerTrack = "image";
+      await loadPreviewPage(1);
+    }
+  } catch (err) {
+    console.error("[viewer] openDocumentPreview failed:", err);
+    els.viewerLoading.hidden = true;
+    await showPreviewFallback();
+  }
+}
+
+// PDF.js renderer — renders one page of a PDF onto <canvas>.
+async function renderPdfPage(objectUrl, pageNo) {
+  els.viewerLoading.hidden = false;
+  els.viewerCanvas.hidden = true;
+
+  try {
+    if (!pdfDoc) {
+      const loadingTask = pdfjsLib.getDocument({ url: objectUrl });
+      pdfDoc = await loadingTask.promise;
+      // object URL no longer needed — PDF.js has buffered everything
+      URL.revokeObjectURL(objectUrl);
+    }
+
+    const totalPages = pdfDoc.numPages;
+    const page = await pdfDoc.getPage(pageNo);
+
+    // Scale to fill the viewer body width
+    const bodyWidth = els.viewerCanvas.parentElement.clientWidth || 400;
+    const viewport = page.getViewport({ scale: 1 });
+    const scale = Math.min(bodyWidth / viewport.width, 3.0);
+    const scaled = page.getViewport({ scale });
+
+    const canvas = els.viewerCanvas;
+    const ctx = canvas.getContext("2d");
+    canvas.width = scaled.width;
+    canvas.height = scaled.height;
+
+    if (pdfRenderTask) { try { pdfRenderTask.cancel(); } catch {} }
+    pdfRenderTask = page.render({ canvasContext: ctx, viewport: scaled });
+    await pdfRenderTask.promise;
+    pdfRenderTask = null;
+
+    currentPreviewPage = pageNo;
+    els.viewerCanvas.hidden = false;
+    els.viewerLoading.hidden = true;
+
+    els.viewerPageLabel.textContent = `Page ${pageNo} / ${totalPages}`;
+    els.viewerPrev.disabled = pageNo <= 1;
+    els.viewerNext.disabled = pageNo >= totalPages;
+    els.viewerPager.hidden = totalPages <= 1;
+  } catch (err) {
+    if (err?.name === "RenderingCancelledException") return; // page switch — ignore
+    console.error("[viewer] PDF render error:", err);
+    els.viewerLoading.hidden = true;
+    await showPreviewFallback();
+  }
+}
+
+// Workday image-preview track: fetch one page, show in <img>.
+async function loadPreviewPage(pageNo) {
+  els.viewerLoading.hidden = false;
+  els.viewerFallback.hidden = true;
+
+  try {
+    const url = await fetchDocumentPreview(currentPreviewDocId, pageNo);
+    revokePreviewUrl();
+    currentPreviewObjectUrl = url;
+    currentPreviewPage = pageNo;
+
+    els.viewerImage.src = url;
+    els.viewerImage.hidden = false;
+    els.viewerLoading.hidden = true;
+
+    els.viewerPageLabel.textContent = `Page ${pageNo}`;
+    els.viewerPrev.disabled = pageNo <= 1;
+    els.viewerNext.disabled = false;
+    els.viewerPager.hidden = false;
+  } catch (err) {
+    els.viewerLoading.hidden = true;
+
+    if (pageNo > 1) {
+      // past the last page — revert
+      currentPreviewPage = pageNo - 1;
+      els.viewerPageLabel.textContent = `Page ${currentPreviewPage}`;
+      els.viewerNext.disabled = true;
+      return;
+    }
+
+    // Page 1 unavailable → show fallback
+    console.warn("[viewer] image preview unavailable for", currentPreviewDocId, err);
+    await showPreviewFallback();
+  }
+}
+
+// When there's no preview image, resolve the first-party Studio viewer URL so the fallback
+// "open in window / open in tab" actions work, then reveal the fallback panel.
+async function showPreviewFallback() {
+  try {
+    const url = await openInViewer(currentPreviewDocId);
+    currentViewerUrl = url;
+    els.viewerOpenTab.href = url;
+    els.viewerFallbackLink.href = url;
+  } catch (err) {
+    console.warn("[viewer] could not resolve fallback viewer url:", err);
+  }
+  els.viewerImage.hidden = true;
+  els.viewerPager.hidden = true;
+  els.viewerFallback.hidden = false;
+}
+
 function openViewer(url, title) {
   if (!url) {
     console.warn("[viewer] openViewer called with empty url");
@@ -626,9 +814,17 @@ function closeViewer() {
   clearTimeout(viewerLoadTimer);
   els.viewerOverlay.hidden = true;
   els.viewerFrame.src = "about:blank";
+  revokePreviewUrl();
+  destroyPdf();
+  els.viewerCanvas.hidden = true;
+  els.viewerImage.removeAttribute("src");
+  els.viewerImage.hidden = true;
+  els.viewerPager.hidden = true;
   els.viewerLoading.hidden = true;
   els.viewerFallback.hidden = true;
   currentViewerUrl = null;
+  currentPreviewDocId = null;
+  currentViewerTrack = null;
 }
 
 // ---- panel actions (Attach / History / Extract / tabs / drag-drop) ----
@@ -645,6 +841,17 @@ els.viewerOpenTab.addEventListener("click", closeViewer);
 // A successful embed fires load; frames blocked by X-Frame-Options do not, so the
 // timeout is what surfaces the fallback in that case.
 els.viewerFrame.addEventListener("load", onViewerLoaded);
+els.viewerPrev.addEventListener("click", () => {
+  if (currentPreviewPage <= 1) return;
+  const prev = currentPreviewPage - 1;
+  if (currentViewerTrack === "pdf") renderPdfPage(null, prev);
+  else loadPreviewPage(prev);
+});
+els.viewerNext.addEventListener("click", () => {
+  const next = currentPreviewPage + 1;
+  if (currentViewerTrack === "pdf") renderPdfPage(null, next);
+  else loadPreviewPage(next);
+});
 document.addEventListener("keydown", (e) => {
   if (e.key === "Escape" && !els.viewerOverlay.hidden) closeViewer();
 });
@@ -713,6 +920,15 @@ function renderUploadFiles() {
   });
 }
 
+// Decides whether a record belongs to the Workday LOB (so Upload routes through the /bow capture
+// path) versus Salesforce/CIC (the /api upload+attach path). Workday records surface as employee/
+// worker business objects or come from a *.workday.com page.
+function isWorkdayRecord(ctx, boType) {
+  const type = (boType || ctx?.businessObjectType || "").toLowerCase();
+  const source = (ctx?.source || "").toLowerCase();
+  return type === "employee" || type === "worker" || source.includes("workday");
+}
+
 els.uploadBtn.addEventListener("click", async () => {
   const docType = els.uploadDocType.value.trim();
   const recordId = els.uploadRecordId.value.trim();
@@ -731,16 +947,21 @@ els.uploadBtn.addEventListener("click", async () => {
     return;
   }
 
+  const workday = isWorkdayRecord(currentContext, businessObjectType);
+  const ctx = { businessObjectType, businessObjectId: recordId, source: currentContext?.source };
+
   els.uploadBtn.disabled = true;
   setUploadStatus(`Uploading ${pendingUploadFiles.length} file(s)…`);
   try {
-    const { uploaded, errors } = await uploadDocuments(
-      { businessObjectType, businessObjectId: recordId },
-      docType,
-      pendingUploadFiles
-    );
-    if (uploaded.length) {
-      setUploadStatus(`Uploaded: ${uploaded.join(", ")}${errors.length ? ` (failed: ${errors.join("; ")})` : ""}`);
+    // One button, correct store: Salesforce records go through the CIC upload/attach path,
+    // Workday records go through the /bow capture path.
+    const result = workday
+      ? await captureDocument(ctx, docType, pendingUploadFiles)
+      : await uploadDocuments(ctx, docType, pendingUploadFiles);
+    const filed = (workday ? result.captured : result.uploaded) || [];
+    const errors = result.errors || [];
+    if (filed.length) {
+      setUploadStatus(`Uploaded: ${filed.join(", ")}${errors.length ? ` (failed: ${errors.join("; ")})` : ""}`);
       pendingUploadFiles = [];
       renderUploadFiles();
       // Refresh the document list so the new file appears.

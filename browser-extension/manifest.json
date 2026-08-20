@@ -70,5 +70,11 @@
       "id": "uceb-agent-chatbot@hyland.local",
       "strict_min_version": "115.0"
     }
-  }
+  },
+  "web_accessible_resources": [
+    {
+      "resources": ["src/lib/pdf.worker.min.mjs"],
+      "matches": ["<all_urls>"]
+    }
+  ]
 }

@@ -148,6 +148,51 @@ export async function uploadDocuments(context, docType, files) {
 }
 
 /**
+ * Captures one or more files into a Workday LOB record via the Workday single-POST capture path
+ * (BFF /api/capture -> MCP staging -> capture_document -> local UCEB /bow/core/documents), without
+ * going through the chatbot/LLM. Used by the panel's Capture (Workday) section.
+ * @param {{ businessObjectType?: string }} context
+ * @param {string} documentTypeId the Workday document type id
+ * @param {File[]} files
+ * @param {object[]} [businessObjectAttributes] record-identifying attributes ([{id,name,value,dataType}])
+ * @param {{ documentId?: string, createNewVersion?: boolean }} [options]
+ * @returns {Promise<{ captured: string[], errors: string[] }>}
+ */
+export async function captureDocument(context, documentTypeId, files, businessObjectAttributes = [], options = {}) {
+  const sessionId = await getSession();
+  if (!sessionId) throw new Error("Not signed in.");
+
+  const attachments = await Promise.all((files ?? []).map(fileToAttachment));
+
+  const response = await fetch(`${CONFIG.bff.baseUrl}/api/capture`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "X-BFF-Session": sessionId,
+    },
+    body: JSON.stringify({
+      businessObjectType: context?.businessObjectType || "employee",
+      businessObjectId: context?.businessObjectId || null,
+      documentTypeId,
+      businessObjectAttributes: Array.isArray(businessObjectAttributes) ? businessObjectAttributes : [],
+      documentId: options?.documentId || null,
+      createNewVersion: Boolean(options?.createNewVersion),
+      attachments,
+    }),
+  });
+
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    const detail = data?.detail || data?.error || `HTTP ${response.status}`;
+    throw new Error(`Capture failed (${response.status}): ${detail}`);
+  }
+  return {
+    captured: Array.isArray(data.captured) ? data.captured : [],
+    errors: Array.isArray(data.errors) ? data.errors : [],
+  };
+}
+
+/**
  * Resolves the Hyland viewer URL for a document (BFF -> MCP open_document_in_viewer) so the popup
  * can open it in a new browser tab.
  * @param {string} docId
@@ -172,6 +217,86 @@ export async function openInViewer(docId) {
     throw new Error(`Open in viewer failed (${response.status}): ${detail}`);
   }
   return data.url;
+}
+
+/**
+ * Fetches a rendered PREVIEW IMAGE for a document (BFF -> MCP -> UCEB file-preview) and returns a
+ * blob: object URL the popup can drop straight into an <img>. This renders the document INSIDE the
+ * panel without embedding the login-gated viewer SPA, so it works for both Salesforce and Workday.
+ * The caller MUST revoke the returned URL (URL.revokeObjectURL) when done to avoid leaks.
+ * A 404 means the rendition isn't provisioned for this doc — the caller can offer the viewer fallback.
+ * @param {string} docId
+ * @param {number} [pageNo] 1-based page (multi-page docs page through this)
+ * @param {string} [renditionType] "preview" (page image) or "thumbnail"
+ * @returns {Promise<string>} a blob: object URL for the preview image
+ */
+export async function fetchDocumentPreview(docId, pageNo = 1, renditionType = "preview") {
+  const sessionId = await getSession();
+  if (!sessionId) throw new Error("Not signed in.");
+
+  const params = new URLSearchParams({
+    docId,
+    pageNo: String(pageNo),
+    renditionType,
+  });
+
+  const response = await fetch(`${CONFIG.bff.baseUrl}/api/document/preview?${params.toString()}`, {
+    method: "GET",
+    headers: { "X-BFF-Session": sessionId },
+  });
+
+  if (!response.ok) {
+    let detail = `HTTP ${response.status}`;
+    try {
+      const data = await response.json();
+      detail = data?.detail || data?.error || detail;
+    } catch {
+      /* non-JSON error body */
+    }
+    const err = new Error(`Preview failed (${response.status}): ${detail}`);
+    err.status = response.status;
+    throw err;
+  }
+
+  const blob = await response.blob();
+  return URL.createObjectURL(blob);
+}
+
+/**
+ * Fetches the raw document bytes for PDF.js rendering (Salesforce) or a viewer URL (Workday).
+ * - Salesforce: returns { type: "bytes", objectUrl, contentType } — caller renders with PDF.js.
+ *   The caller MUST call URL.revokeObjectURL(objectUrl) when done.
+ * - Workday: returns { type: "viewer", viewerUrl } — caller opens the URL first-party.
+ * @param {string} docId
+ * @returns {Promise<{ type: "bytes", objectUrl: string, contentType: string } | { type: "viewer", viewerUrl: string }>}
+ */
+export async function fetchDocumentContent(docId) {
+  const sessionId = await getSession();
+  if (!sessionId) throw new Error("Not signed in.");
+
+  const response = await fetch(
+    `${CONFIG.bff.baseUrl}/api/document/content?docId=${encodeURIComponent(docId)}`,
+    { method: "GET", headers: { "X-BFF-Session": sessionId } }
+  );
+
+  if (!response.ok) {
+    let detail = `HTTP ${response.status}`;
+    try { const d = await response.json(); detail = d?.detail || d?.error || detail; } catch {}
+    const err = new Error(`Content fetch failed (${response.status}): ${detail}`);
+    err.status = response.status;
+    throw err;
+  }
+
+  const contentType = response.headers.get("Content-Type") ?? "";
+
+  if (contentType.includes("json")) {
+    const data = await response.json();
+    return { type: "viewer", viewerUrl: data.viewerUrl };
+  }
+
+  const blob = await response.blob();
+  const objectUrl = URL.createObjectURL(blob);
+  return { type: "bytes", objectUrl, contentType };
 }
 
 /** Reads a File into a base64 payload the BFF can decode and save to disk. */

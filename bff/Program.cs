@@ -18,6 +18,7 @@ using System.Reflection;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using Microsoft.Extensions.Options;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -413,6 +414,192 @@ app.MapPost("/api/upload", async (HttpContext ctx, UploadRequest req) =>
     return Results.Json(new { uploaded, errors });
 });
 
+// ---------- Capture a document into a Workday LOB record (deterministic; BFF -> MCP capture_document) ----------
+// Mirrors /api/upload but uses the Workday single-POST capture path (/bow/core/documents) instead of the
+// Salesforce/CIC 3-step attach. Stages each file's bytes on the MCP server, then calls the capture_document
+// tool with the documentType + business-object attributes that tie the document to the record.
+app.MapPost("/api/capture", async (HttpContext ctx, CaptureRequest req) =>
+{
+    var sessionId = ctx.Request.Headers["X-BFF-Session"].ToString();
+    if (string.IsNullOrEmpty(sessionId) || !sessions.TryGet(sessionId, out _))
+        return Results.Json(new { error = "not_authenticated" }, statusCode: 401);
+
+    if (string.IsNullOrWhiteSpace(req.DocumentTypeId))
+        return Results.Json(new { error = "missing_docType", detail = "A documentTypeId is required." }, statusCode: 400);
+
+    if (req.Attachments is not { Length: > 0 })
+        return Results.Json(new { error = "no_file", detail = "Attach at least one file to capture." }, statusCode: 400);
+
+    if (string.IsNullOrWhiteSpace(mcp.BaseUrl) || string.IsNullOrWhiteSpace(mcp.ApiKey))
+        return Results.Json(new { error = "mcp_not_configured", detail = "Mcp:BaseUrl / Mcp:ApiKey is not configured on the BFF." }, statusCode: 500);
+
+    var businessObjectType = string.IsNullOrWhiteSpace(req.BusinessObjectType) ? "employee" : req.BusinessObjectType;
+
+    // Resolve the record-identifying business-object attributes.
+    //  - If the caller supplied them explicitly, pass them through verbatim.
+    //  - Otherwise, when a record id is provided, auto-fetch the document type's default capture
+    //    attributes (which carry the real Workday field ids) so a single "Upload" click can file
+    //    into Workday without the UI needing to know the doc-type's attribute schema.
+    string attributesJson;
+    if (req.BusinessObjectAttributes is { Length: > 0 } attrs)
+    {
+        attributesJson = JsonSerializer.Serialize(attrs);
+    }
+    else if (!string.IsNullOrWhiteSpace(req.BusinessObjectId))
+    {
+        attributesJson = "[]";
+        try
+        {
+            var singleValued = JsonSerializer.Serialize(new[]
+            {
+                new { name = "businessObjectId", value = req.BusinessObjectId }
+            });
+            using var attrCts = new CancellationTokenSource(TimeSpan.FromSeconds(60));
+            var (attrText, attrIsError) = await McpJsonRpc.CallToolWithStatusAsync(httpFactory, mcp, "get_capture_default_attributes", new
+            {
+                documentTypeId = req.DocumentTypeId,
+                businessObjectType,
+                singleValuedBusinessObjectAttributesJson = singleValued,
+            }, log, attrCts.Token);
+
+            string? dataArrayJson = null;
+            if (!attrIsError && !string.IsNullOrWhiteSpace(attrText))
+            {
+                var braceIdx = attrText.IndexOf('{');
+                if (braceIdx >= 0)
+                {
+                    try
+                    {
+                        var attrNode = JsonNode.Parse(attrText[braceIdx..]);
+                        if (attrNode?["data"] is JsonArray dataArr)
+                        {
+                            // get_capture_default_attributes returns the full attribute *schema* but with
+                            // every value null — the singleValuedBusinessObjectAttributes are not mapped
+                            // onto the returned ids. Inject the record's id onto the businessObjectId
+                            // attribute so the capture actually ties to the worker; without it UCEB NREs
+                            // (Object reference not set) before the document is stored.
+                            foreach (var item in dataArr)
+                            {
+                                if (item is not JsonObject obj) continue;
+                                var id = obj["id"]?.GetValue<string>();
+                                var name = obj["name"]?.GetValue<string>();
+                                if ((id?.EndsWith("businessObjectId", StringComparison.OrdinalIgnoreCase) ?? false)
+                                    || (name?.EndsWith("businessObjectId", StringComparison.OrdinalIgnoreCase) ?? false))
+                                {
+                                    obj["value"] = req.BusinessObjectId;
+                                }
+                            }
+                            dataArrayJson = dataArr.ToJsonString();
+                        }
+                    }
+                    catch (JsonException) { }
+                }
+            }
+
+            if (dataArrayJson is not null)
+                attributesJson = dataArrayJson;
+            else
+                log.LogWarning("/api/capture: could not resolve default capture attributes for {DocType}; proceeding with []. Tool said: {Text}", req.DocumentTypeId, attrText);
+        }
+        catch (Exception ex)
+        {
+            log.LogError(ex, "/api/capture: error resolving default capture attributes for {DocType}", req.DocumentTypeId);
+        }
+    }
+    else
+    {
+        attributesJson = "[]";
+    }
+
+    var stagingUrl = $"{mcp.BaseUrl.TrimEnd('/')}/staging/upload";
+    var stageHttp = httpFactory.CreateClient();
+    stageHttp.Timeout = TimeSpan.FromSeconds(120);
+
+    var captured = new List<string>();
+    var errors = new List<string>();
+
+    foreach (var att in req.Attachments!)
+    {
+        if (att is null || string.IsNullOrWhiteSpace(att.DataBase64))
+            continue;
+
+        var originalName = string.IsNullOrWhiteSpace(att.Name) ? "upload" : Path.GetFileName(att.Name);
+        var stagedName = NormalizeUploadExtension(originalName);
+
+        // 1) stage the bytes on the MCP server
+        string? stagingId = null;
+        try
+        {
+            using var stageReq = new HttpRequestMessage(HttpMethod.Post, stagingUrl);
+            stageReq.Headers.TryAddWithoutValidation(mcp.HeaderName, mcp.ApiKey);
+            stageReq.Content = new StringContent(
+                JsonSerializer.Serialize(new { fileName = stagedName, mime = att.Mime, dataBase64 = att.DataBase64 }),
+                Encoding.UTF8, "application/json");
+            var stageResp = await stageHttp.SendAsync(stageReq);
+            var stageBody = await stageResp.Content.ReadAsStringAsync();
+            if (!stageResp.IsSuccessStatusCode)
+            {
+                log.LogError("/api/capture: staging failed for {Original} {Status}: {Body}", originalName, (int)stageResp.StatusCode, stageBody);
+                errors.Add($"{originalName}: staging failed ({(int)stageResp.StatusCode})");
+                continue;
+            }
+            using var stageDoc = JsonDocument.Parse(stageBody);
+            stagingId = stageDoc.RootElement.TryGetProperty("stagingId", out var idEl) ? idEl.GetString() : null;
+        }
+        catch (Exception ex)
+        {
+            log.LogError(ex, "/api/capture: error staging {Original}", originalName);
+            errors.Add($"{originalName}: {ex.Message}");
+            continue;
+        }
+
+        if (string.IsNullOrEmpty(stagingId))
+        {
+            errors.Add($"{originalName}: no stagingId returned");
+            continue;
+        }
+
+        // 2) call capture_document
+        try
+        {
+            using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(120));
+            var (text, isError) = await McpJsonRpc.CallToolWithStatusAsync(httpFactory, mcp, "capture_document", new
+            {
+                stagingId,
+                documentTypeId = req.DocumentTypeId,
+                businessObjectAttributesJson = attributesJson,
+                businessObjectType,
+                documentId = req.DocumentId,
+                createNewVersion = req.CreateNewVersion ?? false,
+                documentName = stagedName,
+            }, log, cts.Token);
+
+            if (isError || CaptureTextIndicatesFailure(text))
+            {
+                var detail = string.IsNullOrWhiteSpace(text) ? "the capture tool reported an error" : text.Trim();
+                log.LogError("/api/capture: capture_document reported failure for {Original}: {Result}", originalName, text);
+                errors.Add($"{originalName}: {detail}");
+            }
+            else
+            {
+                captured.Add(originalName);
+                log.LogInformation("/api/capture: captured {Original} as {DocType} on {BoType}: {Result}",
+                    originalName, req.DocumentTypeId, businessObjectType, text);
+            }
+        }
+        catch (Exception ex)
+        {
+            log.LogError(ex, "/api/capture: capture_document failed for {Original}", originalName);
+            errors.Add($"{originalName}: {ex.Message}");
+        }
+    }
+
+    if (captured.Count == 0)
+        return Results.Json(new { error = "capture_failed", detail = string.Join("; ", errors) }, statusCode: 502);
+
+    return Results.Json(new { captured, errors });
+});
+
 // ---------- Open a document in the Hyland viewer (deterministic; returns the viewer URL) ----------
 app.MapPost("/api/viewer", async (HttpContext ctx, ViewerRequest req) =>
 {
@@ -437,6 +624,114 @@ app.MapPost("/api/viewer", async (HttpContext ctx, ViewerRequest req) =>
     {
         log.LogError(ex, "/api/viewer failed for {DocId}", req.DocId);
         return Results.Json(new { error = "viewer_failed", detail = ex.Message }, statusCode: 502);
+    }
+});
+
+// ---------- Stream a document PREVIEW image so the plugin can render it INSIDE the panel ----------
+// The extension GETs this with its session; we proxy to the MCP's /documents/{id}/preview endpoint
+// (X-Api-Key) and stream the rendition image bytes straight back. No LLM, no viewer SPA, no iframe —
+// the extension turns the bytes into a blob: URL and shows them in an <img>, which sidesteps the
+// third-party-cookie / frame-ancestors problems of embedding the Studio viewer.
+app.MapGet("/api/document/preview", async (HttpContext ctx) =>
+{
+    var sessionId = ctx.Request.Headers["X-BFF-Session"].ToString();
+    if (string.IsNullOrEmpty(sessionId) || !sessions.TryGet(sessionId, out _))
+        return Results.Json(new { error = "not_authenticated" }, statusCode: 401);
+
+    var docId = ctx.Request.Query["docId"].ToString();
+    if (string.IsNullOrWhiteSpace(docId))
+        return Results.Json(new { error = "missing_docId" }, statusCode: 400);
+
+    if (string.IsNullOrWhiteSpace(mcp.BaseUrl) || string.IsNullOrWhiteSpace(mcp.ApiKey))
+        return Results.Json(new { error = "mcp_not_configured" }, statusCode: 500);
+
+    var renditionType = ctx.Request.Query["renditionType"].ToString();
+    if (string.IsNullOrWhiteSpace(renditionType)) renditionType = "preview";
+    var pageNo = ctx.Request.Query["pageNo"].ToString();
+    if (string.IsNullOrWhiteSpace(pageNo)) pageNo = "1";
+
+    try
+    {
+        var http = httpFactory.CreateClient();
+        var url = $"{mcp.BaseUrl.TrimEnd('/')}/documents/{Uri.EscapeDataString(docId)}/preview" +
+                  $"?renditionType={Uri.EscapeDataString(renditionType)}&pageNo={Uri.EscapeDataString(pageNo)}";
+        using var previewReq = new HttpRequestMessage(HttpMethod.Get, url);
+        previewReq.Headers.TryAddWithoutValidation(mcp.HeaderName, mcp.ApiKey);
+
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(60));
+        var mcpResp = await http.SendAsync(previewReq, HttpCompletionOption.ResponseHeadersRead, cts.Token);
+
+        if (!mcpResp.IsSuccessStatusCode)
+        {
+            var errBody = await mcpResp.Content.ReadAsStringAsync(cts.Token);
+            return Results.Json(
+                new { error = "preview_failed", status = (int)mcpResp.StatusCode, detail = errBody },
+                statusCode: (int)mcpResp.StatusCode);
+        }
+
+        var bytes = await mcpResp.Content.ReadAsByteArrayAsync(cts.Token);
+        var contentType = mcpResp.Content.Headers.ContentType?.MediaType ?? "application/octet-stream";
+        return Results.File(bytes, contentType);
+    }
+    catch (Exception ex)
+    {
+        log.LogError(ex, "/api/document/preview failed for {DocId}", docId);
+        return Results.Json(new { error = "preview_failed", detail = ex.Message }, statusCode: 502);
+    }
+});
+
+// ---------- Raw document CONTENT bytes for the PDF.js in-panel viewer ----------
+// Salesforce: MCP downloads the actual file bytes → we stream them back; the extension renders with PDF.js.
+// Workday: MCP has no download endpoint → it returns JSON { workday: true, viewerUrl } which we forward;
+// the extension opens the URL in a first-party window/tab where the session cookie IS sent.
+app.MapGet("/api/document/content", async (HttpContext ctx) =>
+{
+    var sessionId = ctx.Request.Headers["X-BFF-Session"].ToString();
+    if (string.IsNullOrEmpty(sessionId) || !sessions.TryGet(sessionId, out _))
+        return Results.Json(new { error = "not_authenticated" }, statusCode: 401);
+
+    var docId = ctx.Request.Query["docId"].ToString();
+    if (string.IsNullOrWhiteSpace(docId))
+        return Results.Json(new { error = "missing_docId" }, statusCode: 400);
+
+    if (string.IsNullOrWhiteSpace(mcp.BaseUrl) || string.IsNullOrWhiteSpace(mcp.ApiKey))
+        return Results.Json(new { error = "mcp_not_configured" }, statusCode: 500);
+
+    try
+    {
+        var http = httpFactory.CreateClient();
+        var url = $"{mcp.BaseUrl.TrimEnd('/')}/documents/{Uri.EscapeDataString(docId)}/content";
+        using var contentReq = new HttpRequestMessage(HttpMethod.Get, url);
+        contentReq.Headers.TryAddWithoutValidation(mcp.HeaderName, mcp.ApiKey);
+
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(120));
+        var mcpResp = await http.SendAsync(contentReq, HttpCompletionOption.ResponseHeadersRead, cts.Token);
+
+        if (!mcpResp.IsSuccessStatusCode)
+        {
+            var errBody = await mcpResp.Content.ReadAsStringAsync(cts.Token);
+            return Results.Json(
+                new { error = "content_failed", status = (int)mcpResp.StatusCode, detail = errBody },
+                statusCode: (int)mcpResp.StatusCode);
+        }
+
+        var contentType = mcpResp.Content.Headers.ContentType?.MediaType ?? "application/octet-stream";
+
+        // Workday path: MCP returns JSON with viewerUrl — forward it as-is for the extension.
+        if (contentType.Contains("json", StringComparison.OrdinalIgnoreCase))
+        {
+            var json = await mcpResp.Content.ReadAsStringAsync(cts.Token);
+            return Results.Content(json, "application/json");
+        }
+
+        // Salesforce path: raw file bytes — stream them back.
+        var bytes = await mcpResp.Content.ReadAsByteArrayAsync(cts.Token);
+        return Results.File(bytes, contentType);
+    }
+    catch (Exception ex)
+    {
+        log.LogError(ex, "/api/document/content failed for {DocId}", docId);
+        return Results.Json(new { error = "content_failed", detail = ex.Message }, statusCode: 502);
     }
 });
 
@@ -500,6 +795,31 @@ static bool UploadTextIndicatesFailure(string? text)
     if (t.Contains("documentid") || t.Contains("attached it to")) return false;
 
     // No clear success signal and no failure phrase -> treat as failure (require real confirmation).
+    return true;
+}
+
+// Heuristic: does the capture_document tool's text response describe a FAILURE rather than a successful
+// capture? Same idea as UploadTextIndicatesFailure — capture_document returns "Captured '...'" plus the
+// response JSON (which carries a documentId) on success, and an error message on failure.
+static bool CaptureTextIndicatesFailure(string? text)
+{
+    if (string.IsNullOrWhiteSpace(text)) return true; // no confirmation => treat as failure
+    var t = text.ToLowerInvariant();
+
+    string[] failureMarkers =
+    {
+        "does not exist", "is required", "not configured", "no lob", "missing lob",
+        "please provide", "not supported", "capture failed", "failed", "failure", "exception", "denied",
+        "unauthorized", "forbidden", "could not", "couldn't", "unable to",
+        "not allowed", "not found", "rejected", "badrequest", "bad request", "must be a json array",
+        "not valid json",
+    };
+    foreach (var m in failureMarkers)
+        if (t.Contains(m)) return true;
+
+    // Positive success signal: the tool starts with "Captured '...'" and the response JSON carries a documentId.
+    if (t.Contains("captured '") || t.Contains("documentid")) return false;
+
     return true;
 }
 
@@ -780,6 +1100,48 @@ static class McpJsonRpc
             found.Add(t);
         }
 
+        // list_document_types returns raw JSON, e.g.
+        //   { "data": [ { "DocumentTypeName": "...", "DocumentTypeId": "..." }, ... ], "total": n }
+        // (Salesforce and Workday share this shape). Parse it directly; only if it isn't JSON do we
+        // fall back to the text/bulleted heuristic below.
+        try
+        {
+            using var jdoc = System.Text.Json.JsonDocument.Parse(text);
+            var root = jdoc.RootElement;
+            System.Text.Json.JsonElement arr = default;
+            if (root.ValueKind == System.Text.Json.JsonValueKind.Array)
+                arr = root;
+            else if (root.ValueKind == System.Text.Json.JsonValueKind.Object
+                     && root.TryGetProperty("data", out var dataEl)
+                     && dataEl.ValueKind == System.Text.Json.JsonValueKind.Array)
+                arr = dataEl;
+
+            if (arr.ValueKind == System.Text.Json.JsonValueKind.Array)
+            {
+                foreach (var item in arr.EnumerateArray())
+                {
+                    if (item.ValueKind == System.Text.Json.JsonValueKind.String) { Add(item.GetString()); continue; }
+                    if (item.ValueKind != System.Text.Json.JsonValueKind.Object) continue;
+                    foreach (var prop in new[] { "DocumentTypeId", "DocumentTypeName", "documentTypeId",
+                                                 "documentTypeName", "ecmContentTypeName", "id", "name" })
+                    {
+                        if (item.TryGetProperty(prop, out var pv)
+                            && pv.ValueKind == System.Text.Json.JsonValueKind.String
+                            && !string.IsNullOrWhiteSpace(pv.GetString()))
+                        {
+                            Add(pv.GetString());
+                            break;
+                        }
+                    }
+                }
+                if (found.Count > 0) return found.ToArray();
+            }
+        }
+        catch (System.Text.Json.JsonException)
+        {
+            // Not JSON — fall through to the text heuristic.
+        }
+
         foreach (var rawLine in text.Split('\n'))
         {
             var line = rawLine.Trim();
@@ -899,6 +1261,17 @@ sealed record ChatAttachment(string? Name, string? Mime, string DataBase64);
 sealed record ContextRequest(string BusinessObjectType, string BusinessObjectId, bool? OnlyMine);
 
 sealed record UploadRequest(string BusinessObjectType, string BusinessObjectId, string EcmContentTypeName, ChatAttachment[]? Attachments);
+
+// Workday capture: file(s) + the documentType and the record-identifying business-object attributes.
+// BusinessObjectAttributes is passed through verbatim as a JSON array to the MCP capture_document tool.
+sealed record CaptureRequest(
+    string? BusinessObjectType,
+    string DocumentTypeId,
+    JsonElement[]? BusinessObjectAttributes,
+    string? BusinessObjectId,
+    string? DocumentId,
+    bool? CreateNewVersion,
+    ChatAttachment[]? Attachments);
 
 sealed record ViewerRequest(string DocId);
 
