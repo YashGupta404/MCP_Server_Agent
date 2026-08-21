@@ -62,6 +62,12 @@
         <button id="manualLoad" class="btn btn--send btn--sm" type="submit">Load</button>
       </form>
 
+      <form id="workerForm" class="manual" hidden>
+        <input id="workerQuery" class="manual__input" type="text" placeholder="Workday worker name or employee id" autocomplete="off" />
+        <button id="workerFind" class="btn btn--send btn--sm" type="submit">Find WID</button>
+      </form>
+      <div id="workerResults" class="worker-results" hidden></div>
+
       <div class="hec__tabs">
         <button id="tabDocuments" class="hec__tab hec__tab--active" type="button">Documents</button>
         <button id="tabMetadata" class="hec__tab" type="button">Metadata</button>

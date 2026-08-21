@@ -95,17 +95,43 @@
       return { rawType: "employee", businessObjectId: widMatch[1].toLowerCase(), displayName: document.title.trim() };
     }
 
-    // 3) Fallback: the Workday instance ref after "/inst/" (e.g. "1$37/247$21"). NOT the real WID,
-    //    so it lists no documents against a real worker — kept only so detection never silently fails.
-    const source = loc.hash && loc.hash.length > 1 ? loc.hash : loc.pathname;
-    const instMatch = source.match(/\/inst\/([^?#]+?)(?:\.htmld?)?(?:[?#]|$)/i);
-    if (instMatch && instMatch[1]) {
-      const businessObjectId = instMatch[1].replace(/[^A-Za-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
-      if (businessObjectId) {
-        return { rawType: "employee", businessObjectId, displayName: document.title.trim() };
-      }
+    // 3) Normal Workday worker page (the end user's own Workday account): the URL carries NO WID —
+    //    only an instance ref like "1$37/247$21" which is NOT the WID and resolves to no real worker.
+    //    So we scrape the worker's Employee ID (shown on the Job Details tab) or name straight from the
+    //    page and let the panel resolve the real 32-hex WID via the BFF — the user types nothing.
+    return detectWorkerProfile();
+  }
+
+  // Reads the worker's identity off a Workday worker page. Prefers the Employee ID (shown on the Job
+  // Details tab, e.g. "Employee ID 21021") because it resolves to exactly one worker; otherwise falls
+  // back to the worker's name from the profile/sidebar header. Returns a `needsResolve` marker (no
+  // businessObjectId yet) — the popup calls the BFF /api/worker/resolve to turn it into the WID.
+  function detectWorkerProfile() {
+    // 1) Employee ID from the Job Details page — the reliable, unambiguous signal.
+    const bodyText = (document.body && document.body.innerText) || "";
+    const idMatch = bodyText.match(/\bEmployee ID\b\s*[:#\-]?\s*([0-9]{3,})/i);
+    const employeeId = idMatch ? idMatch[1] : "";
+
+    // 2) Worker name from the profile/sidebar header (the data-automation-id varies across Workday
+    //    builds, so try the common ones in order).
+    let name = "";
+    const nameSelectors = [
+      '[data-automation-id="pageHeaderTitleText"]',
+      '[data-automation-id="pageHeaderTitle"]',
+      '[data-automation-id="workerProfileName"]',
+      '[data-automation-id="navigationLandmarkTitle"]',
+    ];
+    for (const sel of nameSelectors) {
+      const el = document.querySelector(sel);
+      const t = el && el.textContent ? el.textContent.trim() : "";
+      if (t) { name = t; break; }
     }
-    return null;
+    name = name.replace(/\s*\([^)]*\)\s*/g, " ").replace(/\s+/g, " ").trim();
+
+    // Prefer the precise Employee ID; fall back to the name.
+    const query = employeeId || name;
+    if (!query) return null;
+    return { rawType: "employee", needsResolve: true, resolveQuery: query, displayName: name || `Employee ${query}` };
   }
 
   // Outlook on the web: modern OWA puts the message id in the path (.../mail/.../id/<id>);
@@ -150,10 +176,25 @@
     else if (/\.workday\.com$|\.myworkday\.com$/.test(host)) raw = detectWorkday(loc);
     else if (/^outlook\.(office(365)?|live)\.com$|^outlook\.cloud\.microsoft$/.test(host)) raw = detectOutlook(loc);
 
-    if (!raw || !raw.businessObjectId) return null;
+    if (!raw) return null;
 
     const businessObjectType = normalizeType(raw.rawType);
     if (!businessObjectType) return null;
+
+    // Workday worker profiles resolve to their WID via the BFF, so they have no id yet — pass the
+    // scraped name/Employee ID through as a `needsResolve` context for the popup to resolve.
+    if (raw.needsResolve && raw.resolveQuery) {
+      return {
+        businessObjectType,
+        needsResolve: true,
+        resolveQuery: raw.resolveQuery,
+        displayName: raw.displayName || raw.resolveQuery,
+        source: host,
+        url: loc.href,
+      };
+    }
+
+    if (!raw.businessObjectId) return null;
 
     // Guard against ids too long for the HFS folder-name limit (e.g. Outlook message ids).
     let businessObjectId = raw.businessObjectId;
@@ -175,7 +216,9 @@
   let lastKey = null;
 
   function contextKey(ctx) {
-    return ctx ? `${ctx.businessObjectType}:${ctx.businessObjectId}` : "none";
+    if (!ctx) return "none";
+    if (ctx.needsResolve) return `resolve:${ctx.businessObjectType}:${ctx.resolveQuery}`;
+    return `${ctx.businessObjectType}:${ctx.businessObjectId}`;
   }
 
   function publish(force = false) {

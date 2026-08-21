@@ -1,7 +1,7 @@
 // Popup chat controller: wires the UI to auth.js + agent.js.
 
 import { interactiveLogin, getSession, clearTokens } from "./auth.js";
-import { sendMessageToAgent, fetchContextDocuments, openInViewer, fetchDocumentPreview, fetchDocumentContent, uploadDocuments, captureDocument, fetchDocumentTypes } from "./agent.js";
+import { sendMessageToAgent, fetchContextDocuments, openInViewer, fetchDocumentPreview, fetchDocumentContent, uploadDocuments, captureDocument, fetchDocumentTypes, resolveWorker } from "./agent.js";
 
 import * as pdfjsLib from "./lib/pdf.mjs";
 
@@ -40,6 +40,10 @@ const els = {
   manualForm: document.getElementById("manualForm"),
   manualType: document.getElementById("manualType"),
   manualId: document.getElementById("manualId"),
+  workerForm: document.getElementById("workerForm"),
+  workerQuery: document.getElementById("workerQuery"),
+  workerFind: document.getElementById("workerFind"),
+  workerResults: document.getElementById("workerResults"),
   uploadFileInput: document.getElementById("uploadFileInput"),
   uploadFiles: document.getElementById("uploadFiles"),
   uploadDocType: document.getElementById("uploadDocType"),
@@ -535,6 +539,8 @@ async function loadContextPanel() {
   if (!signedIn) {
     els.contextPanel.hidden = true;
     els.docList.innerHTML = "";
+    els.workerForm.hidden = true;
+    els.workerResults.hidden = true;
     return;
   }
 
@@ -550,14 +556,52 @@ async function loadContextPanel() {
     els.docList.innerHTML = "";
     loadedDocuments = [];
     els.manualForm.hidden = false;
+    els.workerForm.hidden = true;
     setContextStatus(
       "Open a Salesforce / ServiceNow / Workday / Outlook record in this tab and press the refresh icon — or enter a UCEB record below to preview its content."
     );
     return;
   }
 
+  // Workday worker profile: the page has no WID, only a name/Employee ID scraped from the DOM.
+  // Resolve it to the real 32-hex WID automatically via the BFF — the user types nothing.
+  if (currentContext.needsResolve) {
+    els.contextPanel.hidden = false;
+    els.manualForm.hidden = true;
+    els.workerForm.hidden = true;
+    els.workerResults.hidden = true;
+    selectTab("documents");
+    els.contextType.textContent = currentContext.businessObjectType;
+    els.contextName.textContent = currentContext.displayName || currentContext.resolveQuery;
+    els.uploadRecordId.value = "";
+    els.contextDesc.hidden = true;
+    els.docList.innerHTML = "";
+    loadedDocuments = [];
+    setContextStatus(`Finding Workday worker "${currentContext.resolveQuery}"…`);
+    try {
+      const result = await resolveWorker(currentContext.resolveQuery);
+      if (result.total === 0) {
+        setContextStatus(`No Workday worker matched "${currentContext.resolveQuery}".`);
+        return;
+      }
+      if (result.wid) {
+        const match = result.matches.find((m) => m.wid === result.wid) || result.matches[0];
+        await applyResolvedWorker(match);
+        return;
+      }
+      // Ambiguous name — show the matches so the user can pick the right worker.
+      setContextStatus(`${result.total} workers matched "${currentContext.resolveQuery}" — pick one:`);
+      renderWorkerResults(result.matches);
+    } catch (err) {
+      setContextStatus(`Worker lookup failed: ${err.message}`);
+    }
+    return;
+  }
+
   els.contextPanel.hidden = false;
   els.manualForm.hidden = true;
+  els.workerForm.hidden = true;
+  els.workerResults.hidden = true;
   selectTab("documents");
   els.contextType.textContent = currentContext.businessObjectType;
   els.contextName.textContent = currentContext.businessObjectId;
@@ -1004,6 +1048,95 @@ els.manualForm.addEventListener("submit", async (event) => {
   } catch (err) {
     setContextStatus(`Couldn't load related content: ${err.message}`);
     els.manualForm.hidden = false;
+  }
+});
+
+// Applies a resolved Workday worker as the active record: fills the type/id + upload record id,
+// then loads that worker's documents. Shared by the single-match auto-apply and result-row clicks.
+async function applyResolvedWorker(match) {
+  const wid = match.wid;
+  if (!wid) return;
+
+  currentContext = {
+    businessObjectType: "employee",
+    businessObjectId: wid,
+    displayName: match.name || `employee ${wid}`,
+    source: "workday",
+  };
+  els.manualType.value = "employee";
+  els.manualId.value = wid;
+  els.uploadRecordId.value = wid;
+  els.workerResults.hidden = true;
+  els.workerResults.innerHTML = "";
+  els.manualForm.hidden = true;
+  els.workerForm.hidden = true;
+  selectTab("documents");
+  els.contextType.textContent = "employee";
+  els.contextName.textContent = wid;
+  els.contextDesc.hidden = true;
+  els.docList.innerHTML = "";
+  setContextStatus(`Loaded ${match.name || "worker"} (WID ${wid}). Loading related content…`);
+
+  try {
+    const { documents } = await fetchContextDocuments(currentContext);
+    renderDocuments(documents);
+  } catch (err) {
+    setContextStatus(`Couldn't load related content: ${err.message}`);
+  }
+}
+
+function renderWorkerResults(matches) {
+  els.workerResults.innerHTML = "";
+  matches.forEach((match) => {
+    const row = document.createElement("button");
+    row.type = "button";
+    row.className = "worker-result";
+    const name = document.createElement("span");
+    name.className = "worker-result__name";
+    name.textContent = match.name || "(unnamed worker)";
+    const meta = document.createElement("span");
+    meta.className = "worker-result__meta";
+    const bits = [];
+    if (match.employeeId) bits.push(`ID ${match.employeeId}`);
+    if (match.businessTitle) bits.push(match.businessTitle);
+    if (match.wid) bits.push(`WID ${match.wid}`);
+    meta.textContent = bits.join(" · ");
+    row.append(name, meta);
+    row.addEventListener("click", () => applyResolvedWorker(match));
+    els.workerResults.appendChild(row);
+  });
+  els.workerResults.hidden = matches.length === 0;
+}
+
+// "Find WID" — resolve a Workday worker by name or Employee ID (BFF /api/worker/resolve).
+els.workerForm.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const query = els.workerQuery.value.trim();
+  if (!query) return;
+
+  els.workerResults.hidden = true;
+  els.workerResults.innerHTML = "";
+  setContextStatus(`Looking up "${query}"…`);
+  els.workerFind.disabled = true;
+  try {
+    const result = await resolveWorker(query);
+    if (result.total === 0) {
+      setContextStatus(`No Workday worker matched "${query}".`);
+      return;
+    }
+    if (result.wid) {
+      // Unambiguous — apply straight away.
+      const match = result.matches.find((m) => m.wid === result.wid) || result.matches[0];
+      await applyResolvedWorker(match);
+      return;
+    }
+    // Multiple matches — let the user pick.
+    setContextStatus(`${result.total} workers matched "${query}" — pick one:`);
+    renderWorkerResults(result.matches);
+  } catch (err) {
+    setContextStatus(`Worker lookup failed: ${err.message}`);
+  } finally {
+    els.workerFind.disabled = false;
   }
 });
 

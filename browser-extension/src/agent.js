@@ -87,6 +87,35 @@ export async function fetchContextDocuments(context) {
 }
 
 /**
+ * Resolves a Workday worker's WID from a name or Employee ID via the BFF
+ * (BFF /api/worker/resolve -> Workday Staffing REST API). Lets the panel auto-fill the
+ * businessObjectId (WID) instead of the user copying the 32-char id out of Workday.
+ * @param {string} query a worker name or Employee ID
+ * @returns {Promise<{ query: string, total: number, wid: string|null, matches: Array<{wid: string, name: string, employeeId: string, businessTitle: string|null, supervisoryOrganization: string|null}> }>}
+ */
+export async function resolveWorker(query) {
+  const sessionId = await getSession();
+  if (!sessionId) throw new Error("Not signed in.");
+
+  const response = await fetch(
+    `${CONFIG.bff.baseUrl}/api/worker/resolve?q=${encodeURIComponent(query)}`,
+    { method: "GET", headers: { "X-BFF-Session": sessionId } }
+  );
+
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    const detail = data?.detail || data?.error || `HTTP ${response.status}`;
+    throw new Error(`Worker lookup failed (${response.status}): ${detail}`);
+  }
+  return {
+    query: data.query ?? query,
+    total: Number(data.total ?? 0),
+    wid: data.wid ?? null,
+    matches: Array.isArray(data.matches) ? data.matches : [],
+  };
+}
+
+/**
  * Lists the available UCEB document (content) types (BFF -> MCP list_document_types) to populate
  * the panel's upload doc-type dropdown.
  * @returns {Promise<string[]>}

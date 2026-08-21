@@ -37,6 +37,7 @@ builder.Configuration.AddUserSecrets(Assembly.GetExecutingAssembly(), optional: 
 builder.Services.Configure<AuthOptions>(builder.Configuration.GetSection("Auth"));
 builder.Services.Configure<AgentOptions>(builder.Configuration.GetSection("Agent"));
 builder.Services.Configure<McpOptions>(builder.Configuration.GetSection("Mcp"));
+builder.Services.Configure<WorkdayOptions>(builder.Configuration.GetSection("Workday"));
 builder.Services.AddHttpClient();
 builder.Services.AddSingleton<SessionStore>();
 
@@ -53,8 +54,10 @@ app.UseCors();
 var auth = app.Services.GetRequiredService<IOptions<AuthOptions>>().Value;
 var agent = app.Services.GetRequiredService<IOptions<AgentOptions>>().Value;
 var mcp = app.Services.GetRequiredService<IOptions<McpOptions>>().Value;
+var workday = app.Services.GetRequiredService<IOptions<WorkdayOptions>>().Value;
 var sessions = app.Services.GetRequiredService<SessionStore>();
 var httpFactory = app.Services.GetRequiredService<IHttpClientFactory>();
+var workdayTokens = new WorkdayTokenCache();
 var log = app.Logger;
 
 // ---------- Exchange an auth code (from the extension's PKCE flow) for a session ----------
@@ -735,6 +738,124 @@ app.MapGet("/api/document/content", async (HttpContext ctx) =>
     }
 });
 
+// ---------- Resolve a Workday worker WID from a name or Employee ID (Workday Staffing REST API) ----------
+// Calls GET {StaffingBaseUrl}/workers?search={q}. The search matches by worker NAME or worker ID
+// (Employee ID), case-insensitive. Each returned worker carries id (=WID), workerId (=Employee ID) and
+// descriptor (=name), so the caller can auto-fill the businessObjectId for capture/upload instead of
+// hunting for the WID in Workday. Auth uses a separate Workday OAuth client (NOT the UCEB token); for
+// quick testing you can pass a raw bearer via the X-Workday-Token header.
+app.MapGet("/api/worker/resolve", async (HttpContext ctx) =>
+{
+    var sessionId = ctx.Request.Headers["X-BFF-Session"].ToString();
+    if (string.IsNullOrEmpty(sessionId) || !sessions.TryGet(sessionId, out _))
+        return Results.Json(new { error = "not_authenticated" }, statusCode: 401);
+
+    var q = ctx.Request.Query["q"].ToString();
+    if (string.IsNullOrWhiteSpace(q)) q = ctx.Request.Query["search"].ToString();
+    if (string.IsNullOrWhiteSpace(q)) q = ctx.Request.Query["employeeId"].ToString();
+    if (string.IsNullOrWhiteSpace(q)) q = ctx.Request.Query["name"].ToString();
+    if (string.IsNullOrWhiteSpace(q))
+        return Results.Json(new { error = "missing_query", detail = "Provide ?q=<worker name or employee id>." }, statusCode: 400);
+
+    if (string.IsNullOrWhiteSpace(workday.StaffingBaseUrl))
+        return Results.Json(new { error = "workday_not_configured", detail = "Set Workday:StaffingBaseUrl in configuration." }, statusCode: 500);
+
+    var (token, tokenErr) = await GetWorkdayAccessTokenAsync(ctx);
+    if (token is null)
+        return Results.Json(new { error = "workday_auth_failed", detail = tokenErr }, statusCode: 502);
+
+    var url = $"{workday.StaffingBaseUrl.TrimEnd('/')}/workers?search={Uri.EscapeDataString(q)}&limit=20";
+    try
+    {
+        var http = httpFactory.CreateClient();
+        using var reqMsg = new HttpRequestMessage(HttpMethod.Get, url);
+        reqMsg.Headers.TryAddWithoutValidation("Authorization", $"Bearer {token}");
+        reqMsg.Headers.TryAddWithoutValidation("Accept", "application/json");
+        using var resp = await http.SendAsync(reqMsg);
+        var body = await resp.Content.ReadAsStringAsync();
+        if (!resp.IsSuccessStatusCode)
+        {
+            log.LogError("/api/worker/resolve: staffing search failed {Status}: {Body}", (int)resp.StatusCode, body);
+            return Results.Json(new { error = "workday_search_failed", status = (int)resp.StatusCode, detail = body }, statusCode: 502);
+        }
+
+        var matches = new List<WorkerMatch>();
+        var root = JsonNode.Parse(body);
+        if (root?["data"] is JsonArray dataArr)
+        {
+            foreach (var item in dataArr)
+            {
+                if (item is not JsonObject o) continue;
+                matches.Add(new WorkerMatch(
+                    Wid: (string?)o["id"],
+                    Name: (string?)o["descriptor"],
+                    EmployeeId: (string?)o["workerId"],
+                    BusinessTitle: (string?)o["primaryJob"]?["businessTitle"],
+                    SupervisoryOrganization: (string?)o["primaryJob"]?["supervisoryOrganization"]?["descriptor"]));
+            }
+        }
+
+        // Prefer an exact Employee ID hit (clean 1:1); otherwise a lone match; else null (ambiguous).
+        var exact = matches.FirstOrDefault(m => string.Equals(m.EmployeeId, q, StringComparison.OrdinalIgnoreCase));
+        string? wid = exact?.Wid ?? (matches.Count == 1 ? matches[0].Wid : null);
+
+        return Results.Json(new { query = q, total = matches.Count, wid, matches });
+    }
+    catch (Exception ex)
+    {
+        log.LogError(ex, "/api/worker/resolve failed for {Query}", q);
+        return Results.Json(new { error = "resolve_failed", detail = ex.Message }, statusCode: 502);
+    }
+});
+
+// Acquires a Workday OAuth bearer token for the Staffing API. Order: (1) an X-Workday-Token header
+// override (handy for testing with a token from the REST API Explorer), (2) a cached token, (3) a
+// fresh token via refresh_token grant (when Workday:RefreshToken is set) or client_credentials.
+async Task<(string? token, string? error)> GetWorkdayAccessTokenAsync(HttpContext ctx)
+{
+    var manual = ctx.Request.Headers["X-Workday-Token"].ToString();
+    if (!string.IsNullOrWhiteSpace(manual)) return (manual, null);
+
+    if (workdayTokens.TryGet(out var cached)) return (cached, null);
+
+    if (string.IsNullOrWhiteSpace(workday.TokenUrl) || string.IsNullOrWhiteSpace(workday.ClientId))
+        return (null, "Workday API client is not configured. Set Workday:TokenUrl, Workday:ClientId, Workday:ClientSecret (and optionally Workday:RefreshToken/Workday:Scope) in user-secrets, or pass an X-Workday-Token header.");
+
+    var form = new Dictionary<string, string>();
+    if (!string.IsNullOrWhiteSpace(workday.RefreshToken))
+    {
+        form["grant_type"] = "refresh_token";
+        form["refresh_token"] = workday.RefreshToken;
+    }
+    else
+    {
+        form["grant_type"] = "client_credentials";
+    }
+    if (!string.IsNullOrWhiteSpace(workday.Scope)) form["scope"] = workday.Scope;
+
+    try
+    {
+        var http = httpFactory.CreateClient();
+        using var reqMsg = new HttpRequestMessage(HttpMethod.Post, workday.TokenUrl);
+        var basic = Convert.ToBase64String(Encoding.UTF8.GetBytes($"{workday.ClientId}:{workday.ClientSecret}"));
+        reqMsg.Headers.TryAddWithoutValidation("Authorization", $"Basic {basic}");
+        reqMsg.Content = new FormUrlEncodedContent(form);
+        using var resp = await http.SendAsync(reqMsg);
+        var body = await resp.Content.ReadAsStringAsync();
+        if (!resp.IsSuccessStatusCode)
+            return (null, $"Workday token request failed ({(int)resp.StatusCode}): {body}");
+        var tok = JsonSerializer.Deserialize<TokenResponse>(body);
+        if (tok is null || string.IsNullOrWhiteSpace(tok.access_token))
+            return (null, "Workday token response had no access_token.");
+        workdayTokens.Set(tok.access_token, tok.expires_in);
+        return (tok.access_token, null);
+    }
+    catch (Exception ex)
+    {
+        return (null, $"Workday token request errored: {ex.Message}");
+    }
+}
+
 // ---------- helpers: status / logout ----------
 app.MapGet("/auth/status", (HttpContext ctx) =>
 {
@@ -1253,6 +1374,54 @@ sealed class McpOptions
     // The MCP API key; keep it in user-secrets, not appsettings.
     public string ApiKey { get; set; } = "";
 }
+
+sealed class WorkdayOptions
+{
+    // Workday Cloud Platform Staffing API base, e.g. https://api.us.wcp.workday.com/staffing/v7.
+    public string StaffingBaseUrl { get; set; } = "https://api.us.wcp.workday.com/staffing/v7";
+    // OAuth token endpoint for the Workday API client. Keep credentials in user-secrets.
+    public string TokenUrl { get; set; } = "";
+    public string ClientId { get; set; } = "";
+    public string ClientSecret { get; set; } = "";
+    // When set, a refresh_token grant is used; otherwise client_credentials.
+    public string RefreshToken { get; set; } = "";
+    public string Scope { get; set; } = "";
+}
+
+// Small thread-safe cache for the Workday access token so we don't re-auth on every lookup.
+sealed class WorkdayTokenCache
+{
+    private readonly object _lock = new();
+    private string? _token;
+    private DateTimeOffset _expiresAt;
+
+    public bool TryGet(out string? token)
+    {
+        lock (_lock)
+        {
+            token = _token;
+            return _token is not null && DateTimeOffset.UtcNow < _expiresAt;
+        }
+    }
+
+    public void Set(string token, int expiresInSeconds)
+    {
+        lock (_lock)
+        {
+            _token = token;
+            // 60s safety buffer; never cache for less than 30s.
+            _expiresAt = DateTimeOffset.UtcNow.AddSeconds(Math.Max(30, expiresInSeconds - 60));
+        }
+    }
+}
+
+sealed record WorkerMatch(
+    string? Wid,
+    string? Name,
+    string? EmployeeId,
+    string? BusinessTitle,
+    string? SupervisoryOrganization);
+
 
 sealed record ChatRequest(string Message, string? ConversationId, ChatAttachment[]? Attachments);
 
