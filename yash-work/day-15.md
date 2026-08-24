@@ -138,3 +138,74 @@ panel (reloading alone doesn't refresh an already-open panel).
 Committed the day's front-end work and pushed to `main`:
 `Add in-panel text-file preview; make manual-entry forms page-driven (LOB-specific); fix [hidden]
 CSS override` (`popup.js`, `popup.html`, `popup.css`, plus `auth.js` and `bff/switch-lob.ps1`).
+
+---
+
+## 7. Per-extension document badges (real extension + unique colours)
+
+**Symptom:** every document row showed a blue **"DOC"** badge regardless of file type.
+
+**Root cause:** `fileExtension()` only matched an extension at the **end** of the name, but UCEB
+composes names with the real extension **in the middle** (e.g.
+`Hyland Logo (2).png-employee-application-2026_08_24`), so it returned `""` → kind `"doc"` → blue
+"DOC" for everything.
+
+**Fix (`popup.js`):**
+- `fileExtension()` now also matches an **embedded** extension mid-string, not just end-of-string.
+- The badge text is the real extension uppercased (`PDF`, `PNG`, `JPEG`, `XLSX`, …) instead of a
+  hardcoded "DOC".
+- `iconKind()` returns a **unique kind per extension** and `popup.css` gives each its own colour
+  (pdf red, doc blue, xls green, csv teal, ppt orange, png purple, jpg pink, gif indigo, tiff brown,
+  bmp cyan, webp olive, svg violet, txt slate, md, json, xml, html, log, zip, generic). Every
+  extension now reads correctly with a distinct colour (previously all images shared one colour).
+
+---
+
+## 8. Multi-page PDF test asset
+
+Built a valid **5-page** test PDF at `yash-work/demo-docs/multipage-test.pdf` (each page reads
+"Page N of 5" + a caption) to verify the in-panel viewer's page navigation. Hand-built with a correct
+xref table; verified all offsets and that PDF.js parses all 5 pages.
+
+---
+
+## 9. PDF pager — "next button vanishes when the panel is wide" (the real bug)
+
+**Symptom:** open the 5-page PDF → page 1 renders, pager shows **"Page 1 / 5"**, but the `›` next
+button is **missing and pages won't advance** — and only when the side panel is **wide**. Collapse
+the panel and the next button reappears.
+
+**Ruled out by direct testing (not guessing):**
+- Rendered `popup.html` in a real browser and **measured** the next button at both 380px and 1014px
+  widths — it renders, is enabled and clickable in both.
+- Ran **PDF.js 6.2.108 in Node** against `multipage-test.pdf` — all 5 pages parse fine.
+- `node --check popup.js` — clean; `manifest.json` loads the exact edited files.
+
+**True root cause — CSS overflow.** `.viewer__body` had **no `overflow`** set (defaulted to
+`visible`), and `.viewer__canvas` has `max-width: 100%` but **no height cap**. When the panel is wide,
+the canvas scales to that width and becomes **tall** (a 612×792 page at ~790px wide ≈ 1020px tall), so
+it **overflows below the body and paints over the pager**, covering the next button. Narrow panel →
+short canvas → fits → pager clear.
+
+**Fix (`popup.css`):**
+```css
+.viewer__body { overflow: auto; }              /* tall canvas scrolls inside, never covers the pager */
+.viewer__pager { position: relative; z-index: 2; }  /* keep the pager above the canvas */
+```
+
+**Also (`popup.js`):**
+- Extracted `goToPrevPage()` / `goToNextPage()` and wired **keyboard ← / →** paging (in addition to
+  the click buttons); typing in an input/textarea is ignored, **Esc** still closes the viewer.
+- Switched PDF loading from `getDocument({ url: blobUrl })` + immediate `revokeObjectURL` to
+  **buffering the bytes into an ArrayBuffer** then `getDocument({ data })`, so every page's data stays
+  available (the old blob-revoke broke `getPage(2+)`), and clamped `pageNo` to `[1, numPages]`.
+
+**Lesson:** a CSS canvas overflow can visually **cover** sibling controls; `get_errors`/JS can't reveal
+it. Reproduce the **layout** (render the HTML, measure the control at the actual panel width) instead of
+only reading code.
+
+---
+
+## 10. Committed + pushed (afternoon)
+
+Recorded sections 7–9 and pushed the doc-badge, multi-page test PDF, and PDF-pager fixes to `main`.

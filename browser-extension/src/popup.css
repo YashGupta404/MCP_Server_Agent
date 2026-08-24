@@ -830,11 +830,26 @@ body {
   letter-spacing: 0.3px;
 }
 
-.docrow__icon--pdf { background: #e0453b; }
-.docrow__icon--doc { background: #2b5bd7; }
-.docrow__icon--xls { background: #1a8f4a; }
-.docrow__icon--img { background: #b0559a; }
-.docrow__icon--txt { background: #5a6472; }
+.docrow__icon--pdf  { background: #e0453b; }
+.docrow__icon--doc  { background: #2b5bd7; }
+.docrow__icon--xls  { background: #1a8f4a; }
+.docrow__icon--csv  { background: #0f9d9d; }
+.docrow__icon--ppt  { background: #e8730c; }
+.docrow__icon--png  { background: #8e44ad; }
+.docrow__icon--jpg  { background: #c2185b; }
+.docrow__icon--gif  { background: #3f51b5; }
+.docrow__icon--tiff { background: #8d6e63; }
+.docrow__icon--bmp  { background: #00838f; }
+.docrow__icon--webp { background: #827717; }
+.docrow__icon--svg  { background: #5e35b1; }
+.docrow__icon--txt  { background: #5a6472; }
+.docrow__icon--md   { background: #455a64; }
+.docrow__icon--json { background: #a1662f; }
+.docrow__icon--xml  { background: #00897b; }
+.docrow__icon--html { background: #c2410c; }
+.docrow__icon--log  { background: #607d8b; }
+.docrow__icon--zip  { background: #9c27b0; }
+.docrow__icon--file { background: #8a94a3; }
 
 .docrow__body {
   min-width: 0;
@@ -936,6 +951,7 @@ body {
   position: relative;
   flex: 1;
   min-height: 0;
+  overflow: auto;
   background: var(--panel-2);
 }
 
@@ -988,6 +1004,8 @@ body {
 
 .viewer__pager {
   flex: 0 0 auto;
+  position: relative;
+  z-index: 2;
   display: flex;
   align-items: center;
   justify-content: center;

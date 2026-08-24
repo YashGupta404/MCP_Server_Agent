@@ -475,7 +475,7 @@ function renderDocuments(documents) {
 
     const icon = document.createElement("span");
     icon.className = `docrow__icon docrow__icon--${kind}`;
-    icon.textContent = (extName || "doc").slice(0, 4).toUpperCase();
+    icon.textContent = (extName || "file").slice(0, 4).toUpperCase();
 
     const body = document.createElement("div");
     body.className = "docrow__body";
@@ -520,17 +520,42 @@ function renderDocuments(documents) {
 }
 
 function fileExtension(name) {
-  const m = /\.([a-z0-9]{1,5})$/i.exec(name || "");
-  return m ? m[1].toLowerCase() : "";
+  const n = name || "";
+  // 1) Real extension at the very end of the name, e.g. "report.pdf".
+  const end = /\.([a-z0-9]{1,5})$/i.exec(n);
+  if (end) return end[1].toLowerCase();
+  // 2) Extension embedded in a composed UCEB document name, e.g.
+  //    "Hyland Logo (2).png-employee-application-2026_08_24" -> "png".
+  //    Grab the FIRST ".<letters>" that is followed by a separator (- _ . space) or end;
+  //    letters-only + length cap avoids matching numeric timestamp segments like ".1338300963".
+  const embedded = /\.([a-z]{2,5})(?=[-_.\s]|$)/i.exec(n);
+  if (embedded) return embedded[1].toLowerCase();
+  return "";
 }
 
 function iconKind(ext) {
-  if (ext === "pdf") return "pdf";
-  if (["doc", "docx"].includes(ext)) return "doc";
-  if (["xls", "xlsx", "csv"].includes(ext)) return "xls";
-  if (["png", "jpg", "jpeg", "gif", "tif", "tiff", "bmp", "webp"].includes(ext)) return "img";
-  if (["txt", "rtf"].includes(ext)) return "txt";
-  return "doc";
+  const map = {
+    pdf: "pdf",
+    doc: "doc", docx: "doc",
+    xls: "xls", xlsx: "xls",
+    csv: "csv",
+    ppt: "ppt", pptx: "ppt",
+    png: "png",
+    jpg: "jpg", jpeg: "jpg",
+    gif: "gif",
+    tif: "tiff", tiff: "tiff",
+    bmp: "bmp",
+    webp: "webp",
+    svg: "svg",
+    txt: "txt", rtf: "txt",
+    md: "md",
+    json: "json",
+    xml: "xml",
+    html: "html", htm: "html",
+    log: "log",
+    zip: "zip",
+  };
+  return map[ext] || "file";
 }
 
 function versionOf(attributes) {
@@ -771,13 +796,17 @@ async function renderPdfPage(objectUrl, pageNo) {
 
   try {
     if (!pdfDoc) {
-      const loadingTask = pdfjsLib.getDocument({ url: objectUrl });
-      pdfDoc = await loadingTask.promise;
-      // object URL no longer needed — PDF.js has buffered everything
+      // Buffer the ENTIRE file into memory so every page is available, then revoke the blob URL.
+      // Loading via { url } makes PDF.js stream page data lazily from the blob; revoking that URL
+      // right after the first page leaves later getPage() calls with no data — so only page 1
+      // rendered and Next/Prev appeared to do nothing. Passing { data } hands PDF.js the bytes.
+      const data = await (await fetch(objectUrl)).arrayBuffer();
       URL.revokeObjectURL(objectUrl);
+      pdfDoc = await pdfjsLib.getDocument({ data }).promise;
     }
 
     const totalPages = pdfDoc.numPages;
+    pageNo = Math.min(Math.max(1, pageNo), totalPages);
     const page = await pdfDoc.getPage(pageNo);
 
     // Scale to fill the viewer body width
@@ -947,19 +976,31 @@ els.viewerOpenTab.addEventListener("click", closeViewer);
 // A successful embed fires load; frames blocked by X-Frame-Options do not, so the
 // timeout is what surfaces the fallback in that case.
 els.viewerFrame.addEventListener("load", onViewerLoaded);
-els.viewerPrev.addEventListener("click", () => {
+function goToPrevPage() {
+  if (els.viewerOverlay.hidden) return;
   if (currentPreviewPage <= 1) return;
   const prev = currentPreviewPage - 1;
   if (currentViewerTrack === "pdf") renderPdfPage(null, prev);
   else loadPreviewPage(prev);
-});
-els.viewerNext.addEventListener("click", () => {
+}
+
+function goToNextPage() {
+  if (els.viewerOverlay.hidden) return;
   const next = currentPreviewPage + 1;
   if (currentViewerTrack === "pdf") renderPdfPage(null, next);
   else loadPreviewPage(next);
-});
+}
+
+els.viewerPrev.addEventListener("click", goToPrevPage);
+els.viewerNext.addEventListener("click", goToNextPage);
 document.addEventListener("keydown", (e) => {
-  if (e.key === "Escape" && !els.viewerOverlay.hidden) closeViewer();
+  if (els.viewerOverlay.hidden) return;
+  if (e.key === "Escape") { closeViewer(); return; }
+  // Don't hijack arrows while typing in an input/textarea
+  const t = e.target;
+  if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable)) return;
+  if (e.key === "ArrowLeft") { e.preventDefault(); goToPrevPage(); }
+  else if (e.key === "ArrowRight") { e.preventDefault(); goToNextPage(); }
 });
 
 els.actAttach.addEventListener("click", () => els.uploadFileInput.click());
