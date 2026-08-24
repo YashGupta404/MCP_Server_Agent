@@ -21,6 +21,13 @@
   box-sizing: border-box;
 }
 
+/* The [hidden] attribute must always win: several components (e.g. .manual) set an explicit
+   `display`, which would otherwise override the UA `[hidden] { display:none }` and leave the
+   element visible even when JS sets `element.hidden = true`. */
+[hidden] {
+  display: none !important;
+}
+
 body {
   width: 100%;
   min-width: 320px;
@@ -959,6 +966,23 @@ body {
 }
 
 .viewer__canvas[hidden] {
+  display: none;
+}
+
+.viewer__text {
+  position: absolute;
+  inset: 0;
+  margin: 0;
+  padding: 14px 16px;
+  overflow: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font: 12px/1.6 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  color: var(--text);
+  background: var(--bg);
+}
+
+.viewer__text[hidden] {
   display: none;
 }
 

@@ -54,6 +54,7 @@ const els = {
   viewerFrame: document.getElementById("viewerFrame"),
   viewerCanvas: document.getElementById("viewerCanvas"),
   viewerImage: document.getElementById("viewerImage"),
+  viewerText: document.getElementById("viewerText"),
   viewerLoading: document.getElementById("viewerLoading"),
   viewerBack: document.getElementById("viewerBack"),
   viewerTitle: document.getElementById("viewerTitle"),
@@ -286,7 +287,6 @@ function setSignedIn(state) {
   els.attachBtn.disabled = !state;
   updateSendEnabled();
   loadContextPanel();
-  if (state) populateDocTypes();
 }
 
 // Document types are LOB-specific (Salesforce vs Workday etc.), so we do NOT hardcode a list —
@@ -295,6 +295,28 @@ function setSignedIn(state) {
 // new-hire-checklist; for Salesforce the CIC content types.
 
 let docTypesLoaded = false;
+
+// Which manual-entry form is shown is decided PURELY by the page the user is on ("salesforce" |
+// "workday" | null-for-unknown), NOT by the signed-in MCP backend. So a Salesforce record page always
+// shows the generic type/record-id form and NEVER the Workday worker lookup, even if the MCP happens to
+// route to Workday. Unknown / non-record hosts fall back to the generic (non-Workday) form.
+let currentLob = null;
+
+// Classifies the active page's host as a known LOB, or null if it isn't a recognised record site.
+function lobFromSource(source) {
+  const s = (source || "").toLowerCase();
+  if (s.includes("workday")) return "workday";
+  if (s.includes("force.com") || s.includes("salesforce")) return "salesforce";
+  return null;
+}
+
+// Shows exactly ONE manual-entry form, matching the current LOB: the generic type/record-id form for
+// Salesforce (and other non-Workday LOBs) or the Workday worker lookup for Workday — never both.
+function applyLobEntryForms() {
+  const workday = currentLob === "workday";
+  els.manualForm.hidden = workday;
+  els.workerForm.hidden = !workday;
+}
 
 function fillDocTypeOptions(types, placeholderText = "Select document type…") {
   const prev = els.uploadDocType.value;
@@ -320,8 +342,18 @@ function fillDocTypeOptions(types, placeholderText = "Select document type…") 
 // from this panel — capturing them NREs before the document is stored. Hide them from the picker.
 const UNSUPPORTED_UPLOAD_DOC_TYPES = new Set(["bp-attachments"]);
 
-async function populateDocTypes() {
-  if (docTypesLoaded) return;
+// Prevents overlapping fetches when the panel refreshes rapidly.
+let docTypesFetching = false;
+
+// Loads the upload document-type list LIVE from the backend so it always reflects the LOB the
+// signed-in MCP token currently routes to (Salesforce vs Workday etc.). `force` re-fetches even if a
+// list was already loaded — used whenever the context panel (re)loads or the user hits Refresh, so a
+// change of LOB (e.g. the MCP was switched from Workday to Salesforce) is picked up without reloading
+// the extension. Without force it fetches only once (initial sign-in).
+async function populateDocTypes(force = false) {
+  if (docTypesFetching) return;
+  if (docTypesLoaded && !force) return;
+  docTypesFetching = true;
   fillDocTypeOptions([], "Loading document types…");
   try {
     const live = (await fetchDocumentTypes()).filter((t) => !UNSUPPORTED_UPLOAD_DOC_TYPES.has(t));
@@ -330,11 +362,15 @@ async function populateDocTypes() {
       docTypesLoaded = true;
     } else {
       // Leave a clear message and allow a later retry (don't mark as loaded).
+      docTypesLoaded = false;
       fillDocTypeOptions([], "No document types found");
     }
   } catch {
     // Allow a retry on the next sign-in / panel load rather than showing wrong types.
+    docTypesLoaded = false;
     fillDocTypeOptions([], "Couldn't load document types");
+  } finally {
+    docTypesFetching = false;
   }
 }
 
@@ -544,6 +580,14 @@ async function loadContextPanel() {
     return;
   }
 
+  // Refresh the upload doc-type list LIVE so it always matches the LOB the signed-in MCP routes to
+  // (Salesforce vs Workday). Fire-and-forget so it doesn't block loading the record's documents.
+  populateDocTypes(true);
+
+  // Decide which manual-entry form to show from the PAGE the user is on (Salesforce vs Workday), so a
+  // Salesforce record never shows the Workday worker lookup. Unknown / no-record hosts -> generic form.
+  currentLob = lobFromSource(currentContext?.source);
+
   // Signed in but the active tab isn't a supported record page (or is a chrome:// page).
   // Keep the panel visible with a hint + a manual entry so the feature is discoverable/testable.
   if (!currentContext) {
@@ -555,8 +599,7 @@ async function loadContextPanel() {
     els.uploadRecordId.value = "";
     els.docList.innerHTML = "";
     loadedDocuments = [];
-    els.manualForm.hidden = false;
-    els.workerForm.hidden = true;
+    applyLobEntryForms();
     setContextStatus(
       "Open a Salesforce / ServiceNow / Workday / Outlook record in this tab and press the refresh icon — or enter a UCEB record below to preview its content."
     );
@@ -599,8 +642,7 @@ async function loadContextPanel() {
   }
 
   els.contextPanel.hidden = false;
-  els.manualForm.hidden = true;
-  els.workerForm.hidden = true;
+  applyLobEntryForms();
   els.workerResults.hidden = true;
   selectTab("documents");
   els.contextType.textContent = currentContext.businessObjectType;
@@ -665,6 +707,7 @@ async function openDocumentPreview(doc) {
   els.viewerFallback.hidden = true;
   els.viewerCanvas.hidden = true;
   els.viewerImage.hidden = true;
+  els.viewerText.hidden = true;
   els.viewerFrame.hidden = true;
   els.viewerPager.hidden = true;
   els.viewerLoading.hidden = false;
@@ -675,6 +718,8 @@ async function openDocumentPreview(doc) {
 
     if (result.type === "bytes") {
       const ctype = (result.contentType || "").toLowerCase();
+      const ext = fileExtension(doc.name || "");
+      const isTextExt = ["txt", "csv", "json", "xml", "md", "log", "yaml", "yml", "html", "htm"].includes(ext);
       if (ctype.includes("image")) {
         // Image content (png/jpg/etc.) — render directly in <img>, not PDF.js
         currentViewerTrack = "image-bytes";
@@ -682,6 +727,21 @@ async function openDocumentPreview(doc) {
         currentPreviewObjectUrl = result.objectUrl;
         els.viewerImage.src = result.objectUrl;
         els.viewerImage.hidden = false;
+        els.viewerLoading.hidden = true;
+        els.viewerPager.hidden = true;
+      } else if (
+        ctype.includes("text") ||
+        ctype.includes("json") ||
+        ctype.includes("xml") ||
+        ctype.includes("csv") ||
+        (isTextExt && !ctype.includes("pdf"))
+      ) {
+        // Plain-text content (txt/csv/json/xml) — read the blob and show it in a <pre>.
+        currentViewerTrack = "text";
+        const text = await (await fetch(result.objectUrl)).text();
+        URL.revokeObjectURL(result.objectUrl);
+        els.viewerText.textContent = text;
+        els.viewerText.hidden = false;
         els.viewerLoading.hidden = true;
         els.viewerPager.hidden = true;
       } else {
@@ -863,6 +923,8 @@ function closeViewer() {
   els.viewerCanvas.hidden = true;
   els.viewerImage.removeAttribute("src");
   els.viewerImage.hidden = true;
+  els.viewerText.textContent = "";
+  els.viewerText.hidden = true;
   els.viewerPager.hidden = true;
   els.viewerLoading.hidden = true;
   els.viewerFallback.hidden = true;

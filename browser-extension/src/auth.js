@@ -73,10 +73,11 @@ export async function interactiveLogin() {
       code_challenge_method: "S256",
       // Force a fresh credential entry instead of silently reusing a cached SSO session.
       prompt: "login",
-      // Force the LOCAL Hyland IAM login form (username/password) and skip the external Microsoft
-      // IdP auto-redirect. This is the standard IdentityServer/Duende hint (idp:local restricts the
-      // login UI to the local account store) and is required to sign in with a native IAM account
-      // such as the appintel dev account, which does not exist in the federated Microsoft tenant.
+      // Force the LOCAL Hyland IAM login form and skip the auto-redirect to the external Microsoft
+      // IdP. Without this hint IAM federates straight to login.microsoftonline.com (the Microsoft
+      // account picker) instead of showing the Hyland IAM page. idp:local keeps the Hyland login
+      // page so the native/local appintel dev account (a member of the appintel-dev-test Agent
+      // Builder environment) can sign in.
       acr_values: "idp:local",
     }).toString();
 

@@ -58,7 +58,7 @@ $LobConfig = @{
         Scopes   = 'openid profile offline_access uceb environment_authorization hxp.nucleus.account hxp wdx'
     }
     salesforce = @{
-        ClientId = '<SET-SALESFORCE-CONFIDENTIAL-CLIENT-ID>'
+        ClientId = 'wsc-dc7e0e46-06d2-4166-874f-149dc8614012'
         Scopes   = 'openid profile offline_access uceb environment_authorization hxp.nucleus.account hxp'
     }
 }
