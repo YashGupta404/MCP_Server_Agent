@@ -1,0 +1,99 @@
+========================================================================
+ WORKDAY CHATBOT — TEST SCRIPT & CURRENT CAPABILITIES
+ Panel: Hyland Integrations Agent  |  LOB: Workday (wdx / bow)
+ Last updated: 2026-08-24
+========================================================================
+
+Sign in with a WORKDAY (wdx) account so the MCP routes to the bow/* LOB
+endpoints. The chatbot is natural-language: type the prompts below into
+the panel chat. Sample document to capture/upload:
+  yash-work/demo-docs/workday/Employee-Offer-Letter.txt
+  (Employee: Logan McNeil,  Employee ID: 21021)
+
+========================================================================
+ A. WHAT WORKS WITH WORKDAY RIGHT NOW
+========================================================================
+ [OK] Login / logout / token claims / authorization status
+ [OK] List document (content) types              (bow/config)
+ [OK] List business object types
+ [OK] List documents for a record
+ [OK] Solution config / content platform / platform capabilities
+ [OK] Resolve a worker: name or Employee ID -> WID  (Staffing REST API)
+ [OK] Capture a document into a worker record       (bow/core/documents)
+        - single-POST capture path (NOT the CIC 3-step attach)
+        - get_capture_default_attributes -> capture_document
+        - the panel "Upload" also routes to capture for Workday
+ [OK] In-panel PREVIEW (rendered page image, file-preview rendition)
+ [OK] In-panel VIEW original file (HxP content-platform direct download;
+        falls back to the first-party Studio viewer URL if unavailable)
+ [OK] Open document in the Hyland web viewer (viewer URL)
+
+========================================================================
+ B. WHAT DOES *NOT* WORK WITH WORKDAY (KNOWN LIMITS)
+========================================================================
+ [NO] chatbot "download document to disk" (download_document / open_document)
+        -> uses UCEB api/core/download, whose CanPreviewDocuments policy is
+           CIC-only and 403s the wdx token. Use PREVIEW or VIEW instead.
+        -> raw bytes ARE reachable in the panel viewer via the HxP content
+           platform, but there is no chatbot tool that calls that path yet.
+
+========================================================================
+ C. PROMPT-BY-PROMPT TEST SCRIPT
+========================================================================
+
+-- 1. Auth ------------------------------------------------------------
+ "Am I signed in? Show my authorization status."
+ "Show my token claims."
+   Expect: signed-in status; claims show the wdx/bow environment.
+
+-- 2. Discover the LOB config ----------------------------------------
+ "What document types can I use?"
+   Expect: Workday types e.g. bp-attachments, employee-application, etc.
+ "List the business object types."
+ "Show the solution configuration."
+ "What content platform am I on?"
+
+-- 3. Resolve a worker ------------------------------------------------
+ "Find the worker Logan McNeil."
+ "Resolve employee ID 21021 to a WID."
+   Expect: one match, a 32-char WID auto-filled as the businessObjectId.
+
+-- 4. List a worker's documents --------------------------------------
+ "List the documents for employee 21021."
+   Expect: the worker's existing documents (empty is fine on a fresh WID).
+
+-- 5. Capture / upload a document ------------------------------------
+ (Attach Employee-Offer-Letter.txt in the panel, then:)
+ "Capture this file for employee 21021 as an employee-application."
+   Expect: capture succeeds; a new documentId is returned.
+ Then re-run prompt #4 to confirm the new document appears.
+
+-- 6. Preview the document (in-panel image) --------------------------
+ "Preview document <docId>."
+   Expect: a rendered page image inside the panel (multi-page pages OK).
+
+-- 7. View the original file -----------------------------------------
+ "Open document <docId>."  /  click the doc to open the in-panel viewer.
+   Expect: original bytes via HxP; if unavailable, the Studio viewer URL.
+
+-- 8. Open in the Hyland web viewer ----------------------------------
+ "Open document <docId> in the viewer."
+   Expect: a first-party viewer URL (session cookie is sent there).
+
+-- 9. Negative test (expected to fail on Workday) --------------------
+ "Download document <docId> to my computer."
+   Expect: 403 / CIC-only policy message. This is the known limit in (B).
+
+========================================================================
+ D. QUICK RESULT LOG (fill in while testing)
+========================================================================
+ 1. Auth ....................... [ ]
+ 2. Doc types / config ......... [ ]
+ 3. Worker resolve ............. [ ]  WID: ______________________________
+ 4. List documents ............. [ ]
+ 5. Capture .................... [ ]  new docId: ________________________
+ 6. Preview .................... [ ]
+ 7. View original .............. [ ]
+ 8. Viewer URL ................. [ ]
+ 9. Download (expected fail) ... [ ]
+========================================================================

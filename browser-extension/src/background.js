@@ -15,16 +15,54 @@ ext.runtime.onInstalled.addListener(() => {
   console.info("[background] UCEB Agent Chatbot installed.");
 });
 
-// Open the persistent side panel when the toolbar icon is clicked (Chrome). The side panel stays
-// docked and open when you click other tabs/windows, unlike the action popup which closes on blur.
+// The toolbar icon only reveals the in-page overlay button (it does NOT open the side panel). The
+// side panel opens only when the user clicks the overlay button (UCEB_OPEN_SIDE_PANEL below).
 try {
-  ext.sidePanel?.setPanelBehavior?.({ openPanelOnActionClick: true });
+  ext.sidePanel?.setPanelBehavior?.({ openPanelOnActionClick: false });
 } catch {
   /* sidePanel API not available (e.g. Firefox) — ignore */
 }
 
+// Toolbar icon click -> show/toggle the floating overlay button on the active tab. Inject the
+// content script on demand if the tab wasn't refreshed after the extension was (re)loaded.
+ext.action?.onClicked?.addListener(async (tab) => {
+  if (!tab?.id) return;
+  const send = () => ext.tabs.sendMessage(tab.id, { type: "UCEB_TOGGLE_LAUNCHER" });
+  try {
+    await send();
+  } catch {
+    try {
+      await ext.scripting.executeScript({
+        target: { tabId: tab.id },
+        files: ["src/content/launcher.js"],
+      });
+      await send();
+    } catch (err) {
+      console.warn("[background] launcher injection failed:", err);
+    }
+  }
+});
+
 // ---- context cache ----
 ext.runtime.onMessage.addListener((msg, sender, sendResponse) => {
+  // The in-page overlay (FAB) asks to open the persistent side panel. This must run synchronously
+  // within the message handler to keep the originating user gesture active for sidePanel.open().
+  if (msg?.type === "UCEB_OPEN_SIDE_PANEL") {
+    const tabId = sender?.tab?.id;
+    const windowId = sender?.tab?.windowId;
+    try {
+      if (typeof tabId === "number") {
+        ext.sidePanel?.open?.({ tabId });
+      } else if (typeof windowId === "number") {
+        ext.sidePanel?.open?.({ windowId });
+      }
+    } catch (err) {
+      console.warn("[background] sidePanel.open failed:", err);
+    }
+    sendResponse?.({ ok: true });
+    return; // sync
+  }
+
   if (msg?.type === "UCEB_CONTEXT") {
     const tabId = sender?.tab?.id;
     if (typeof tabId === "number") {

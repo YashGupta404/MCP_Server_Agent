@@ -13,6 +13,19 @@
     MCP's own user-secrets under `Lob:<lob>:ClientSecret`. Set it once per LOB with -SetSecret (you type
     the secret directly into the terminal; it is read as a SecureString and never echoed).
 
+.NOTES
+    ENVIRONMENT (IAM endpoints) IS NOT SWITCHED BY THIS SCRIPT.
+    This script only swaps the confidential client id/secret + scopes. The IAM endpoint URLs
+    (Auth:AuthorizeEndpoint / TokenEndpoint / EndSessionEndpoint) live in the MCP's appsettings.json
+    and are SHARED across LOBs. Today both Salesforce (dev-test) and Workday (dev-prod) use the SAME
+    DEV IAM (auth.dev.app.hyland.com) - dev-test and dev-prod are environments within dev IAM - so no
+    endpoint change is needed to switch between them.
+    Staging is a DIFFERENT IAM (auth.staging.app.hyland.com). If you ever point one LOB at staging, you
+    must edit the Auth:* endpoints in appsettings.json to staging for that run, and flip them BACK to
+    auth.dev before running the dev/dev-prod LOB again (a dev-prod client against staging IAM =
+    invalid_client). Only one LOB runs per MCP process, so there is no clash - just remember the
+    endpoints are shared and this script does not touch them.
+
 .PARAMETER Lob
     Which line of business to activate: 'salesforce' or 'workday'.
 

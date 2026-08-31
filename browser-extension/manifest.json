@@ -63,6 +63,12 @@
       "js": ["src/content/detector.js"],
       "run_at": "document_idle",
       "all_frames": false
+    },
+    {
+      "matches": ["<all_urls>"],
+      "js": ["src/content/launcher.js"],
+      "run_at": "document_idle",
+      "all_frames": false
     }
   ],
   "browser_specific_settings": {
@@ -73,7 +79,11 @@
   },
   "web_accessible_resources": [
     {
-      "resources": ["src/lib/pdf.worker.min.mjs"],
+      "resources": [
+        "src/lib/pdf.worker.min.mjs",
+        "src/popup.html",
+        "src/assets/hyland-logo.png"
+      ],
       "matches": ["<all_urls>"]
     }
   ]

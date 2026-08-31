@@ -92,8 +92,90 @@ app.MapPost("/auth/exchange", async (ExchangeRequest req) =>
     var sessionId = Pkce.RandomToken();
     sessions.Save(sessionId, token);
     log.LogInformation("/auth/exchange: session created");
+
+    // DIAGNOSTIC: decode the issued access token and log the identity + entitlement claims so we can
+    // diff which user (e.g. yash vs a-rizzo) actually receives the agent scopes/roles. This is what
+    // decides Agent Builder access — a user missing `environment_authorization`/`hxp` in `scope` or
+    // lacking the invoke role/permission is the one IAM rejects. Full token is NEVER logged.
+    LogTokenEntitlements(token.access_token, token.scope);
+
     return Results.Json(new { session = sessionId });
 });
+
+// Decodes a JWT's payload (no signature check — diagnostics only) and logs the claims that gate
+// Agent Builder access: subject/name, granted scope, and any roles/permissions/groups. Never logs
+// the raw token. Safe to leave in: it only reads standard IAM claims from a token we already hold.
+void LogTokenEntitlements(string? accessToken, string? grantedScopeFromResponse)
+{
+    if (string.IsNullOrWhiteSpace(accessToken))
+    {
+        log.LogWarning("[auth-diag] no access_token to decode");
+        return;
+    }
+
+    try
+    {
+        string[] parts = accessToken.Split('.');
+        if (parts.Length < 2)
+        {
+            log.LogWarning("[auth-diag] access_token is not a JWT (parts={Parts})", parts.Length);
+            return;
+        }
+
+        string payloadJson = Encoding.UTF8.GetString(Base64UrlDecode(parts[1]));
+        JsonNode? payload = JsonNode.Parse(payloadJson);
+        if (payload is null)
+        {
+            log.LogWarning("[auth-diag] could not parse JWT payload");
+            return;
+        }
+
+        string? Str(string key) => payload[key]?.ToString();
+        string Joined(string key) => payload[key] is JsonArray arr
+            ? string.Join(",", arr.Select(n => n?.ToString()))
+            : payload[key]?.ToString() ?? "(none)";
+
+        // Prefer the scope inside the token; fall back to the token-endpoint response scope.
+        string scope = payload["scope"]?.ToString() ?? grantedScopeFromResponse ?? "(none)";
+
+        log.LogInformation(
+            "[auth-diag] user sub={Sub} name={Name} preferred_username={User} email={Email}",
+            Str("sub") ?? "(none)", Str("name") ?? "(none)",
+            Str("preferred_username") ?? "(none)", Str("email") ?? "(none)");
+        log.LogInformation("[auth-diag] granted scope: {Scope}", scope);
+        log.LogInformation(
+            "[auth-diag] roles={Roles} | permissions={Perms} | groups={Groups}",
+            Joined("roles"), Joined("permissions"), Joined("groups"));
+        log.LogInformation(
+            "[auth-diag] aud={Aud} client_id={ClientId} hxp_authorization={Hxp}",
+            Joined("aud"), Str("client_id") ?? "(none)",
+            payload["hxp_authorization"]?.ToJsonString() ?? "(none)");
+
+        // Explicit pass/fail on the scopes the Agent Orchestration API requires.
+        bool hasHxp = scope.Split(' ').Contains("hxp");
+        bool hasEnvAuth = scope.Split(' ').Contains("environment_authorization");
+        log.LogInformation(
+            "[auth-diag] AGENT SCOPES -> hxp={HasHxp} environment_authorization={HasEnvAuth} => {Verdict}",
+            hasHxp, hasEnvAuth,
+            hasHxp && hasEnvAuth ? "OK (agent scopes granted)" : "MISSING (agent access will be denied)");
+    }
+    catch (Exception ex)
+    {
+        log.LogWarning(ex, "[auth-diag] failed to decode/log token entitlements");
+    }
+}
+
+// Base64Url -> bytes (JWT segments are base64url without padding).
+static byte[] Base64UrlDecode(string input)
+{
+    string s = input.Replace('-', '+').Replace('_', '/');
+    switch (s.Length % 4)
+    {
+        case 2: s += "=="; break;
+        case 3: s += "="; break;
+    }
+    return Convert.FromBase64String(s);
+}
 
 // ---------- Proxy chat to the agent ----------
 app.MapPost("/api/chat", async (HttpContext ctx, ChatRequest req) =>

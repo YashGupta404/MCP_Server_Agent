@@ -1,0 +1,112 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1680" height="920" viewBox="0 0 1680 920" font-family="Segoe UI, Roboto, Helvetica, Arial, sans-serif">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#0b1e3f"/>
+      <stop offset="1" stop-color="#0a1730"/>
+    </linearGradient>
+    <linearGradient id="green" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#2f9e44"/>
+      <stop offset="1" stop-color="#20c997"/>
+    </linearGradient>
+    <linearGradient id="blue" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#4dabf7"/>
+      <stop offset="1" stop-color="#1c7ed6"/>
+    </linearGradient>
+    <radialGradient id="glow" cx="0.5" cy="0.5" r="0.5">
+      <stop offset="0" stop-color="#20c997" stop-opacity="0.35"/>
+      <stop offset="1" stop-color="#20c997" stop-opacity="0"/>
+    </radialGradient>
+    <filter id="shadow" x="-30%" y="-30%" width="160%" height="160%">
+      <feDropShadow dx="0" dy="6" stdDeviation="10" flood-color="#000" flood-opacity="0.4"/>
+    </filter>
+    <marker id="arrow" viewBox="0 0 10 10" refX="7" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#20c997"/>
+    </marker>
+  </defs>
+
+  <rect width="1680" height="920" fill="url(#bg)"/>
+
+  <!-- Header -->
+  <text x="70" y="70" font-size="40" font-weight="700" fill="#ffffff">Hyland Integrations Agent</text>
+  <text x="70" y="108" font-size="21" fill="#9fb3d1">Chat with your enterprise content — right where you already work</text>
+  <line x1="70" y1="140" x2="1610" y2="140" stroke="#1c3355" stroke-width="2"/>
+
+  <!-- glow behind center -->
+  <ellipse cx="840" cy="440" rx="360" ry="300" fill="url(#glow)"/>
+
+  <!-- LEFT: People in their apps -->
+  <g filter="url(#shadow)">
+    <rect x="90" y="300" width="340" height="300" rx="20" fill="#12294d" stroke="#4dabf7" stroke-width="2.5"/>
+  </g>
+  <text x="260" y="352" text-anchor="middle" font-size="26" font-weight="700" fill="#fff">People</text>
+  <text x="260" y="384" text-anchor="middle" font-size="16" fill="#9fb3d1">in their everyday business apps</text>
+  <!-- simple person icon -->
+  <circle cx="260" cy="440" r="26" fill="url(#blue)"/>
+  <path d="M212 512 a48 42 0 0 1 96 0 z" fill="url(#blue)"/>
+  <text x="260" y="560" text-anchor="middle" font-size="16" fill="#cdd9ec">Salesforce · Workday</text>
+  <text x="260" y="584" text-anchor="middle" font-size="16" fill="#cdd9ec">…via the Browser Plugin</text>
+
+  <!-- CENTER: The Agent -->
+  <g filter="url(#shadow)">
+    <rect x="620" y="250" width="440" height="400" rx="26" fill="#0f3d33" stroke="#20c997" stroke-width="3"/>
+  </g>
+  <text x="840" y="316" text-anchor="middle" font-size="30" font-weight="700" fill="#fff">The AI Agent</text>
+  <text x="840" y="350" text-anchor="middle" font-size="17" fill="#8ee3c8">understands plain-language requests</text>
+
+  <!-- highlighted Chrome Plugin badge -->
+  <g filter="url(#shadow)">
+    <rect x="726" y="463" width="228" height="42" rx="21" fill="#ffd43b" stroke="#fff3bf" stroke-width="2.5"/>
+  </g>
+  <text x="840" y="491" text-anchor="middle" font-size="19" font-weight="700" fill="#08152c">Chrome Plugin</text>
+
+  <text x="840" y="556" text-anchor="middle" font-size="17" fill="#cdeee4">“Show me this customer’s contracts”</text>
+  <text x="840" y="584" text-anchor="middle" font-size="17" fill="#cdeee4">“Capture this file to Anthony Rizzo”</text>
+  <text x="840" y="620" text-anchor="middle" font-size="15" fill="#7fbfae">It turns words into secure content actions</text>
+
+  <!-- RIGHT: Hyland content -->
+  <g filter="url(#shadow)">
+    <rect x="1250" y="300" width="340" height="300" rx="20" fill="#12294d" stroke="#4dabf7" stroke-width="2.5"/>
+  </g>
+  <text x="1420" y="352" text-anchor="middle" font-size="24" font-weight="700" fill="#fff">Hyland Content Services</text>
+  <text x="1420" y="384" text-anchor="middle" font-size="16" fill="#9fb3d1">enterprise documents &amp; records</text>
+  <!-- document stack icon -->
+  <g>
+    <rect x="1372" y="422" width="96" height="120" rx="8" fill="#20304f" stroke="#4dabf7" stroke-width="2"/>
+    <rect x="1388" y="406" width="96" height="120" rx="8" fill="#26385c" stroke="#6ec1ff" stroke-width="2"/>
+    <line x1="1404" y1="438" x2="1468" y2="438" stroke="#9fb3d1" stroke-width="3"/>
+    <line x1="1404" y1="462" x2="1468" y2="462" stroke="#9fb3d1" stroke-width="3"/>
+    <line x1="1404" y1="486" x2="1444" y2="486" stroke="#9fb3d1" stroke-width="3"/>
+  </g>
+  <text x="1420" y="572" text-anchor="middle" font-size="16" fill="#cdd9ec">view · capture · list</text>
+
+  <!-- Arrows -->
+  <line x1="432" y1="450" x2="614" y2="450" stroke="#20c997" stroke-width="4" marker-end="url(#arrow)" marker-start="url(#arrow)"/>
+  <text x="523" y="436" text-anchor="middle" font-size="15" fill="#8ee3c8">Browser Plugin</text>
+
+  <line x1="1064" y1="450" x2="1246" y2="450" stroke="#20c997" stroke-width="4" marker-end="url(#arrow)" marker-start="url(#arrow)"/>
+  <text x="1155" y="436" text-anchor="middle" font-size="15" fill="#8ee3c8">MCP + UCEB</text>
+
+  <!-- Value strip -->
+  <g filter="url(#shadow)">
+    <rect x="90" y="700" width="470" height="150" rx="16" fill="#0d2038" stroke="#20c997" stroke-width="1.5"/>
+  </g>
+  <text x="325" y="742" text-anchor="middle" font-size="20" font-weight="700" fill="#20c997">Content in context</text>
+  <text x="325" y="778" text-anchor="middle" font-size="15.5" fill="#cdd9ec">Documents appear beside the record —</text>
+  <text x="325" y="802" text-anchor="middle" font-size="15.5" fill="#cdd9ec">no app-switching, no manual searching.</text>
+
+  <g filter="url(#shadow)">
+    <rect x="605" y="700" width="470" height="150" rx="16" fill="#0d2038" stroke="#4dabf7" stroke-width="1.5"/>
+  </g>
+  <text x="840" y="742" text-anchor="middle" font-size="20" font-weight="700" fill="#4dabf7">Natural language</text>
+  <text x="840" y="778" text-anchor="middle" font-size="15.5" fill="#cdd9ec">Just say what you want —</text>
+  <text x="840" y="802" text-anchor="middle" font-size="15.5" fill="#cdd9ec">no APIs or technical steps to learn.</text>
+
+  <g filter="url(#shadow)">
+    <rect x="1120" y="700" width="470" height="150" rx="16" fill="#0d2038" stroke="#b197fc" stroke-width="1.5"/>
+  </g>
+  <text x="1355" y="742" text-anchor="middle" font-size="20" font-weight="700" fill="#b197fc">Secure by design</text>
+  <text x="1355" y="778" text-anchor="middle" font-size="15.5" fill="#cdd9ec">Every action runs as the signed-in user —</text>
+  <text x="1355" y="802" text-anchor="middle" font-size="15.5" fill="#cdd9ec">their permissions are always honored.</text>
+
+  <text x="840" y="892" text-anchor="middle" font-size="14" fill="#5c7091">Powered by the Model Context Protocol (MCP) which then calls UCEB</text>
+</svg>

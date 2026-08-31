@@ -1,0 +1,112 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1680" height="640" viewBox="0 0 1680 640" font-family="Segoe UI, Roboto, Helvetica, Arial, sans-serif">
+  <defs>
+    <filter id="shadow" x="-30%" y="-30%" width="160%" height="160%">
+      <feDropShadow dx="0" dy="5" stdDeviation="7" flood-color="#000" flood-opacity="0.4"/>
+    </filter>
+    <marker id="ag" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#20c997"/>
+    </marker>
+    <marker id="ak" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#f59f00"/>
+    </marker>
+    <marker id="ap" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#7048e8"/>
+    </marker>
+  </defs>
+
+  <rect width="1680" height="640" fill="#0a1424"/>
+
+  <!-- Header -->
+  <text x="70" y="78" font-size="38" font-weight="700" fill="#ffffff">How it works</text>
+  <text x="70" y="110" font-size="19" fill="#8aa0bf">All the parts, in sequence</text>
+  <line x1="70" y1="130" x2="1610" y2="130" stroke="#1c3355" stroke-width="2"/>
+
+  <!-- ================= ROW 1 (left to right) ================= -->
+  <!-- 1 User -->
+  <g filter="url(#shadow)"><rect x="70" y="180" width="150" height="92" rx="14" fill="#12294d" stroke="#4dabf7" stroke-width="2"/></g>
+  <text x="145" y="232" text-anchor="middle" font-size="17" font-weight="700" fill="#fff">User</text>
+  <circle cx="92" cy="182" r="15" fill="#1c7ed6"/><text x="92" y="187" text-anchor="middle" font-size="13" font-weight="700" fill="#fff">1</text>
+
+  <!-- 2 Sign-in -->
+  <g filter="url(#shadow)"><rect x="260" y="180" width="185" height="92" rx="14" fill="#12294d" stroke="#4dabf7" stroke-width="2"/></g>
+  <text x="352" y="232" text-anchor="middle" font-size="17" font-weight="700" fill="#fff">Sign-in</text>
+  <circle cx="282" cy="182" r="15" fill="#1c7ed6"/><text x="282" y="187" text-anchor="middle" font-size="13" font-weight="700" fill="#fff">2</text>
+
+  <!-- 3 Browser Plugin (with sub-boxes) -->
+  <g filter="url(#shadow)"><rect x="485" y="160" width="290" height="132" rx="16" fill="#0d2038" stroke="#1c7ed6" stroke-width="2.5"/></g>
+  <text x="630" y="188" text-anchor="middle" font-size="17" font-weight="700" fill="#fff">Browser Plugin</text>
+  <rect x="503" y="200" width="254" height="24" rx="6" fill="#12294d" stroke="#2b4a72" stroke-width="1"/>
+  <text x="630" y="217" text-anchor="middle" font-size="12.5" fill="#cfe0f5">Chat window</text>
+  <rect x="503" y="230" width="254" height="24" rx="6" fill="#12294d" stroke="#2b4a72" stroke-width="1"/>
+  <text x="630" y="247" text-anchor="middle" font-size="12.5" fill="#cfe0f5">Document viewer</text>
+  <rect x="503" y="260" width="254" height="24" rx="6" fill="#12294d" stroke="#2b4a72" stroke-width="1"/>
+  <text x="630" y="277" text-anchor="middle" font-size="12.5" fill="#cfe0f5">Upload / list</text>
+  <circle cx="507" cy="162" r="15" fill="#1c7ed6"/><text x="507" y="167" text-anchor="middle" font-size="13" font-weight="700" fill="#fff">3</text>
+
+  <!-- 4 BFF -->
+  <g filter="url(#shadow)"><rect x="815" y="180" width="150" height="92" rx="14" fill="#12294d" stroke="#4dabf7" stroke-width="2"/></g>
+  <text x="890" y="232" text-anchor="middle" font-size="17" font-weight="700" fill="#fff">BFF</text>
+  <circle cx="837" cy="182" r="15" fill="#1c7ed6"/><text x="837" y="187" text-anchor="middle" font-size="13" font-weight="700" fill="#fff">4</text>
+
+  <!-- 5 Hyland Agent -->
+  <g filter="url(#shadow)"><rect x="1005" y="180" width="255" height="92" rx="14" fill="#241a4d" stroke="#7048e8" stroke-width="2.5"/></g>
+  <text x="1132" y="222" text-anchor="middle" font-size="17" font-weight="700" fill="#fff">Hyland Agent</text>
+  <text x="1132" y="246" text-anchor="middle" font-size="13" fill="#b9a9ef">deployed in cloud</text>
+  <circle cx="1027" cy="182" r="15" fill="#7048e8"/><text x="1027" y="187" text-anchor="middle" font-size="13" font-weight="700" fill="#fff">5</text>
+
+  <!-- row1 arrows (User -> Sign-in -> Plugin -> BFF -> Agent) -->
+  <g stroke="#20c997" stroke-width="3">
+    <line x1="220" y1="226" x2="256" y2="226" marker-end="url(#ag)"/>
+    <line x1="445" y1="226" x2="481" y2="226" marker-end="url(#ag)"/>
+    <line x1="775" y1="226" x2="811" y2="226" marker-end="url(#ag)"/>
+    <line x1="969" y1="226" x2="1001" y2="226" marker-end="url(#ag)"/>
+  </g>
+
+  <!-- connector Hyland Agent -> right side of MCP Server -->
+  <path d="M1132,272 L1132,476 L969,476" fill="none" stroke="#20c997" stroke-width="3" marker-end="url(#ag)"/>
+
+  <!-- down connector BFF -> MCP Server -->
+  <path d="M890,272 L890,405 L852,405 L852,426" fill="none" stroke="#20c997" stroke-width="3" marker-end="url(#ag)"/>
+
+  <!-- ================= ROW 2 (right to left) ================= -->
+  <!-- 6 MCP Server -->
+  <g filter="url(#shadow)"><rect x="740" y="430" width="225" height="92" rx="14" fill="#0f3d33" stroke="#20c997" stroke-width="2.8"/></g>
+  <text x="852" y="482" text-anchor="middle" font-size="17" font-weight="700" fill="#fff">MCP Server</text>
+  <circle cx="762" cy="432" r="15" fill="#2f9e44"/><text x="762" y="437" text-anchor="middle" font-size="13" font-weight="700" fill="#fff">6</text>
+
+  <!-- 8 UCEB API -->
+  <g filter="url(#shadow)"><rect x="500" y="430" width="200" height="92" rx="14" fill="#12294d" stroke="#1c7ed6" stroke-width="2"/></g>
+  <text x="600" y="482" text-anchor="middle" font-size="17" font-weight="700" fill="#fff">UCEB API</text>
+  <circle cx="522" cy="432" r="15" fill="#1c7ed6"/><text x="522" y="437" text-anchor="middle" font-size="13" font-weight="700" fill="#fff">7</text>
+
+  <!-- 9 Hyland Content Services -->
+  <g filter="url(#shadow)"><rect x="210" y="430" width="250" height="92" rx="14" fill="#0f3d33" stroke="#20c997" stroke-width="2.5"/></g>
+  <text x="335" y="482" text-anchor="middle" font-size="16" font-weight="700" fill="#fff">Hyland Content Services</text>
+  <circle cx="232" cy="432" r="15" fill="#2f9e44"/><text x="232" y="437" text-anchor="middle" font-size="13" font-weight="700" fill="#fff">8</text>
+
+  <!-- row2 arrows (point left) -->
+  <g stroke="#20c997" stroke-width="3">
+    <line x1="738" y1="476" x2="704" y2="476" marker-end="url(#ag)"/>
+    <line x1="498" y1="476" x2="464" y2="476" marker-end="url(#ag)"/>
+  </g>
+
+  <!-- ================= Hyland IAM (identity provider) ================= -->
+  <g filter="url(#shadow)"><rect x="455" y="316" width="250" height="86" rx="14" fill="#3a2c0a" stroke="#f59f00" stroke-width="2.5"/></g>
+  <text x="580" y="352" text-anchor="middle" font-size="17" font-weight="700" fill="#fff">Hyland IAM</text>
+  <text x="580" y="376" text-anchor="middle" font-size="12.5" fill="#ffd8a8">Identity Provider &#183; OAuth 2.0 + PKCE</text>
+
+  <!-- auth connectors (dashed amber) -->
+  <g stroke="#f59f00" stroke-width="2.5" stroke-dasharray="7 5" fill="none">
+    <!-- Sign-in (2) <-> IAM -->
+    <path d="M352,272 L352,359 L455,359" marker-end="url(#ak)"/>
+    <!-- Browser Plugin (3) <-> IAM -->
+    <path d="M630,292 L630,316" marker-end="url(#ak)"/>
+    <!-- MCP Server (6) <-> IAM -->
+    <path d="M820,430 L820,359 L705,359" marker-end="url(#ak)"/>
+    <!-- UCEB API (7) <-> IAM -->
+    <path d="M600,430 L600,402" marker-end="url(#ak)"/>
+  </g>
+
+  <!-- legend -->
+  <text x="840" y="588" text-anchor="middle" font-size="14" fill="#5c7091">Solid = request / data flow &#160;&#160;&#8226;&#160;&#160; <tspan fill="#f59f00">Dashed = authentication via Hyland IAM (runs as the signed-in user)</tspan></text>
+</svg>
