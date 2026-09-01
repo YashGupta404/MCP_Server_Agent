@@ -38,6 +38,7 @@ builder.Services.Configure<AuthOptions>(builder.Configuration.GetSection("Auth")
 builder.Services.Configure<AgentOptions>(builder.Configuration.GetSection("Agent"));
 builder.Services.Configure<McpOptions>(builder.Configuration.GetSection("Mcp"));
 builder.Services.Configure<WorkdayOptions>(builder.Configuration.GetSection("Workday"));
+builder.Services.Configure<OnBaseOptions>(builder.Configuration.GetSection("OnBase"));
 builder.Services.AddHttpClient();
 builder.Services.AddSingleton<SessionStore>();
 
@@ -55,10 +56,37 @@ var auth = app.Services.GetRequiredService<IOptions<AuthOptions>>().Value;
 var agent = app.Services.GetRequiredService<IOptions<AgentOptions>>().Value;
 var mcp = app.Services.GetRequiredService<IOptions<McpOptions>>().Value;
 var workday = app.Services.GetRequiredService<IOptions<WorkdayOptions>>().Value;
+var onbase = app.Services.GetRequiredService<IOptions<OnBaseOptions>>().Value;
 var sessions = app.Services.GetRequiredService<SessionStore>();
 var httpFactory = app.Services.GetRequiredService<IHttpClientFactory>();
 var workdayTokens = new WorkdayTokenCache();
 var log = app.Logger;
+
+// When the MCP's active ECM system is an OnBase/CFS config (its friendlyName != the configured CIC
+// name), the panel must use the OnBase keyword document-query path instead of the CIC record-scoped
+// list, and stamp the record id into the OnBase keyword field on upload. Resolved from the MCP's
+// in-memory selector; on any failure we fall back to the CIC path so Salesforce is never broken.
+async Task<bool> IsOnBaseActiveAsync(CancellationToken ct)
+{
+    try
+    {
+        var text = await McpJsonRpc.CallToolAsync(httpFactory, mcp, "get_active_system_configuration", new { }, log, ct);
+        int a = text?.IndexOf('\'') ?? -1;
+        int b = a >= 0 ? text!.IndexOf('\'', a + 1) : -1;
+        var name = (a >= 0 && b > a) ? text!.Substring(a + 1, b - a - 1) : "";
+        return !string.IsNullOrWhiteSpace(name)
+            && !string.Equals(name, onbase.CicFriendlyName, StringComparison.OrdinalIgnoreCase);
+    }
+    catch (Exception ex)
+    {
+        log.LogWarning(ex, "Could not resolve the active ECM system; using the CIC list path.");
+        return false;
+    }
+}
+
+string OnBaseKeywordField(string businessObjectType) =>
+    onbase.KeywordFieldByType.TryGetValue(businessObjectType, out var f) && !string.IsNullOrWhiteSpace(f)
+        ? f : onbase.DefaultKeywordFieldId;
 
 // ---------- Exchange an auth code (from the extension's PKCE flow) for a session ----------
 // The extension runs the interactive PKCE login (redirect_uri = its chromiumapp.org URL, which
@@ -337,12 +365,21 @@ app.MapPost("/api/context", async (HttpContext ctx, ContextRequest req) =>
     try
     {
         using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(120));
-        var text = await McpJsonRpc.CallToolAsync(httpFactory, mcp, "list_documents", new
-        {
-            businessObjectId = req.BusinessObjectId,
-            businessObjectType = req.BusinessObjectType,
-            onlyMine = req.OnlyMine ?? false,
-        }, log, cts.Token);
+        // OnBase/CFS can't use the CIC record-scoped list_documents (501 stub); it lists via the keyword
+        // document-query, filtering on the record id stored in the OnBase keyword field.
+        var text = await IsOnBaseActiveAsync(cts.Token)
+            ? await McpJsonRpc.CallToolAsync(httpFactory, mcp, "query_documents", new
+            {
+                businessObjectType = req.BusinessObjectType,
+                filterFieldId = OnBaseKeywordField(req.BusinessObjectType),
+                filterValue = req.BusinessObjectId,
+            }, log, cts.Token)
+            : await McpJsonRpc.CallToolAsync(httpFactory, mcp, "list_documents", new
+            {
+                businessObjectId = req.BusinessObjectId,
+                businessObjectType = req.BusinessObjectType,
+                onlyMine = req.OnlyMine ?? false,
+            }, log, cts.Token);
 
         var documents = McpJsonRpc.ParseDocumentList(text);
         return Results.Json(new
@@ -412,6 +449,15 @@ app.MapPost("/api/upload", async (HttpContext ctx, UploadRequest req) =>
     var stageHttp = httpFactory.CreateClient();
     stageHttp.Timeout = TimeSpan.FromSeconds(120);
 
+    // OnBase content types reject hfs_Name; stamp the record id into the OnBase keyword field instead so
+    // the same id lists the document back via query_documents. Resolved once for all attachments.
+    bool isOnBase;
+    using (var probeCts = new CancellationTokenSource(TimeSpan.FromSeconds(30)))
+        isOnBase = await IsOnBaseActiveAsync(probeCts.Token);
+    string? onBaseAttributesJson = isOnBase
+        ? JsonSerializer.Serialize(new[] { new { name = OnBaseKeywordField(req.BusinessObjectType), value = req.BusinessObjectId } })
+        : null;
+
     var uploaded = new List<string>();
     var errors = new List<string>();
 
@@ -462,14 +508,25 @@ app.MapPost("/api/upload", async (HttpContext ctx, UploadRequest req) =>
         try
         {
             using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(120));
-            var (text, isError) = await McpJsonRpc.CallToolWithStatusAsync(httpFactory, mcp, "upload_staged_file", new
-            {
-                stagingId,
-                businessObjectId = req.BusinessObjectId,
-                businessObjectType = req.BusinessObjectType,
-                ecmContentTypeName = req.EcmContentTypeName,
-                documentName = stagedName,
-            }, log, cts.Token);
+            object uploadArgs = onBaseAttributesJson is null
+                ? new
+                {
+                    stagingId,
+                    businessObjectId = req.BusinessObjectId,
+                    businessObjectType = req.BusinessObjectType,
+                    ecmContentTypeName = req.EcmContentTypeName,
+                    documentName = stagedName,
+                }
+                : new
+                {
+                    stagingId,
+                    businessObjectId = req.BusinessObjectId,
+                    businessObjectType = req.BusinessObjectType,
+                    ecmContentTypeName = req.EcmContentTypeName,
+                    documentName = stagedName,
+                    additionalAttributesJson = onBaseAttributesJson,
+                };
+            var (text, isError) = await McpJsonRpc.CallToolWithStatusAsync(httpFactory, mcp, "upload_staged_file", uploadArgs, log, cts.Token);
 
             // The MCP call can succeed at the JSON-RPC level while the tool itself reports a failure
             // (either via isError or an error message in the text). Only count a REAL success.
@@ -1455,6 +1512,18 @@ sealed class McpOptions
     public string HeaderName { get; set; } = "X-Api-Key";
     // The MCP API key; keep it in user-secrets, not appsettings.
     public string ApiKey { get; set; } = "";
+}
+
+sealed class OnBaseOptions
+{
+    // The active system friendlyName that means "CIC" (record-scoped list_documents path). Any other
+    // active friendlyName is treated as OnBase/CFS -> use the keyword document-query path.
+    public string CicFriendlyName { get; set; } = "CIC";
+    // OnBase keyword field id (an ecmFieldName from the solution config's metadataFieldImportMappings)
+    // that holds + filters the record id, per businessObjectType.
+    public Dictionary<string, string> KeywordFieldByType { get; set; } = new(StringComparer.OrdinalIgnoreCase);
+    // Fallback keyword field id (232 = Entity Name for account / "COM - Application").
+    public string DefaultKeywordFieldId { get; set; } = "232";
 }
 
 sealed class WorkdayOptions
