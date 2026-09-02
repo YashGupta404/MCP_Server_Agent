@@ -138,6 +138,52 @@ export async function fetchDocumentTypes() {
 }
 
 /**
+ * Lists the ECM system configurations registered in this environment (CIC / OnBase / …) for the
+ * onboarding picker. Returns { configs: [{friendlyName, systemType, description, isDefault, isActive}], active }.
+ */
+export async function fetchSystemConfigs() {
+  const sessionId = await getSession();
+  if (!sessionId) throw new Error("Not signed in.");
+
+  const response = await fetch(`${CONFIG.bff.baseUrl}/api/system-configs`, {
+    method: "GET",
+    headers: { "X-BFF-Session": sessionId },
+  });
+
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    const detail = data?.detail || data?.error || `HTTP ${response.status}`;
+    throw new Error(`System configs lookup failed (${response.status}): ${detail}`);
+  }
+  return {
+    configs: Array.isArray(data.configs) ? data.configs : [],
+    active: data.active ?? "",
+  };
+}
+
+/**
+ * Sets the active ECM system for this session so subsequent document calls resolve to it.
+ * Returns { active } — the friendlyName now in effect.
+ */
+export async function setSystemConfig(friendlyName) {
+  const sessionId = await getSession();
+  if (!sessionId) throw new Error("Not signed in.");
+
+  const response = await fetch(`${CONFIG.bff.baseUrl}/api/system-config`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "X-BFF-Session": sessionId },
+    body: JSON.stringify({ friendlyName }),
+  });
+
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    const detail = data?.detail || data?.error || `HTTP ${response.status}`;
+    throw new Error(`Set system config failed (${response.status}): ${detail}`);
+  }
+  return { active: data.active ?? friendlyName };
+}
+
+/**
  * Uploads one or more files DIRECTLY to a record's content in UCEB (BFF -> MCP staging ->
  * upload_staged_file), without going through the chatbot/LLM. Used by the panel's Upload section.
  * @param {{ businessObjectType: string, businessObjectId: string }} context

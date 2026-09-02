@@ -10,6 +10,9 @@ import { CONFIG } from "./config.js";
 const ext = globalThis.browser ?? globalThis.chrome;
 
 const SESSION_KEY = "uceb_bff_session";
+// The ECM system the user chose for THIS session (friendlyName). Stored in session storage so it is
+// re-prompted after an extension reload / browser close, exactly like the sign-in session.
+const SYS_CONFIG_KEY = "uceb_system_config";
 
 // Session-scoped storage: kept only in memory for the current browser session and automatically
 // cleared when the browser is fully closed. This gives us "auto sign-out on close" — reopening the
@@ -47,6 +50,24 @@ async function saveSession(sessionId) {
 export async function getSession() {
   const result = await sessionStore.get(SESSION_KEY);
   return result[SESSION_KEY] ?? null;
+}
+
+/** Returns the system-config friendlyName chosen this session, or null if not chosen yet. */
+export async function getSystemConfig() {
+  const result = await sessionStore.get(SYS_CONFIG_KEY);
+  return result[SYS_CONFIG_KEY] ?? null;
+}
+
+/** Persists the chosen system-config friendlyName for this session. */
+export async function setStoredSystemConfig(friendlyName) {
+  await sessionStore.set({ [SYS_CONFIG_KEY]: friendlyName });
+  return friendlyName;
+}
+
+/** Clears the chosen system config (e.g. on sign-out). */
+export async function clearSystemConfig() {
+  await sessionStore.remove(SYS_CONFIG_KEY);
+  await ext.storage.local.remove(SYS_CONFIG_KEY);
 }
 
 // ---------- public API ----------
@@ -126,6 +147,8 @@ export async function clearTokens() {
     }
   }
   await sessionStore.remove(SESSION_KEY);
+  await sessionStore.remove(SYS_CONFIG_KEY);
   // Also drop any legacy value that may have been persisted in local storage by older builds.
   await ext.storage.local.remove(SESSION_KEY);
+  await ext.storage.local.remove(SYS_CONFIG_KEY);
 }

@@ -431,6 +431,69 @@ body {
   overflow-y: auto;
 }
 
+/* ---- System configuration picker (onboarding, shown first after sign-in) ---- */
+.sysconfig {
+  border-bottom: 1px solid var(--line);
+  background: #ffffff;
+  padding: 14px;
+}
+.sysconfig__head {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  margin-bottom: 10px;
+}
+.sysconfig__title {
+  font-weight: 600;
+  font-size: 14px;
+  color: #1b1f27;
+}
+.sysconfig__sub {
+  font-size: 12px;
+  color: #5a6270;
+}
+.sysconfig__list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.sysconfig__item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  cursor: pointer;
+  background: #f7f9fc;
+  transition: background 0.12s, border-color 0.12s;
+}
+.sysconfig__item:hover {
+  background: #eef2fb;
+  border-color: #b9c6e6;
+}
+.sysconfig__name {
+  font-weight: 600;
+  font-size: 13px;
+  color: #1b1f27;
+}
+.sysconfig__type {
+  font-size: 11px;
+  color: #5a6270;
+  background: #e3e9f5;
+  border-radius: 10px;
+  padding: 2px 8px;
+}
+.sysconfig__status {
+  margin-top: 10px;
+  font-size: 12px;
+  color: #5a6270;
+}
+
 .hec__bar {
   display: flex;
   align-items: center;

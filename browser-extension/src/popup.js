@@ -1,7 +1,7 @@
 // Popup chat controller: wires the UI to auth.js + agent.js.
 
-import { interactiveLogin, getSession, clearTokens } from "./auth.js";
-import { sendMessageToAgent, fetchContextDocuments, openInViewer, fetchDocumentPreview, fetchDocumentContent, uploadDocuments, captureDocument, fetchDocumentTypes, resolveWorker } from "./agent.js";
+import { interactiveLogin, getSession, clearTokens, getSystemConfig, setStoredSystemConfig, clearSystemConfig } from "./auth.js";
+import { sendMessageToAgent, fetchContextDocuments, openInViewer, fetchDocumentPreview, fetchDocumentContent, uploadDocuments, captureDocument, fetchDocumentTypes, resolveWorker, fetchSystemConfigs, setSystemConfig } from "./agent.js";
 
 import * as pdfjsLib from "./lib/pdf.mjs";
 
@@ -24,6 +24,9 @@ const els = {
   fileInput: document.getElementById("fileInput"),
   attachments: document.getElementById("attachments"),
   contextPanel: document.getElementById("contextPanel"),
+  systemConfigView: document.getElementById("systemConfigView"),
+  sysConfigList: document.getElementById("sysConfigList"),
+  sysConfigStatus: document.getElementById("sysConfigStatus"),
   contextType: document.getElementById("contextType"),
   contextName: document.getElementById("contextName"),
   contextDesc: document.getElementById("contextDesc"),
@@ -72,6 +75,8 @@ const els = {
 let loadedDocuments = [];
 
 let signedIn = false;
+/** The ECM system (friendlyName) chosen for this session, or null until the user picks one. */
+let systemConfig = null;
 /** @type {File[]} */
 let pendingFiles = [];
 /** Files queued in the panel's Upload section (separate from the chat composer). */
@@ -286,7 +291,88 @@ function setSignedIn(state) {
   els.input.disabled = !state;
   els.attachBtn.disabled = !state;
   updateSendEnabled();
-  loadContextPanel();
+  if (state) {
+    // Onboarding: the FIRST thing the user does after signing in is choose the ECM system config.
+    // Everything else (documents, doc types, upload) then resolves to that system for the session.
+    ensureSystemConfigThenLoad();
+  } else {
+    systemConfig = null;
+    clearSystemConfig().catch(() => {});
+    if (els.systemConfigView) els.systemConfigView.hidden = true;
+    loadContextPanel();
+  }
+}
+
+// If a system config was already chosen this session, load the panel; otherwise show the picker first.
+async function ensureSystemConfigThenLoad() {
+  try {
+    systemConfig = await getSystemConfig();
+  } catch {
+    systemConfig = null;
+  }
+  if (systemConfig) {
+    if (els.systemConfigView) els.systemConfigView.hidden = true;
+    loadContextPanel();
+  } else {
+    await showSystemConfigScreen();
+  }
+}
+
+// Renders the ECM system picker and gates the panel + composer until a system is chosen.
+async function showSystemConfigScreen() {
+  if (els.contextPanel) els.contextPanel.hidden = true;
+  els.input.disabled = true;
+  els.attachBtn.disabled = true;
+  updateSendEnabled();
+  if (!els.systemConfigView) {
+    loadContextPanel();
+    return;
+  }
+  els.systemConfigView.hidden = false;
+  els.sysConfigList.innerHTML = "";
+  els.sysConfigStatus.textContent = "Loading available systems\u2026";
+  try {
+    const { configs } = await fetchSystemConfigs();
+    els.sysConfigStatus.textContent = configs.length
+      ? "Select a system to connect to:"
+      : "No system configurations are available in this environment.";
+    for (const cfg of configs) {
+      const li = document.createElement("li");
+      li.className = "sysconfig__item";
+      const name = document.createElement("span");
+      name.className = "sysconfig__name";
+      name.textContent = cfg.friendlyName + (cfg.isDefault ? " (default)" : "");
+      const type = document.createElement("span");
+      type.className = "sysconfig__type";
+      type.textContent = cfg.systemType || "";
+      li.appendChild(name);
+      li.appendChild(type);
+      if (cfg.description) li.title = cfg.description;
+      li.addEventListener("click", () => chooseSystemConfig(cfg.friendlyName));
+      els.sysConfigList.appendChild(li);
+    }
+  } catch (err) {
+    els.sysConfigStatus.textContent = `Couldn't load systems: ${err.message}`;
+  }
+}
+
+// Activates the chosen system, persists it for the session, then loads the document panel.
+async function chooseSystemConfig(friendlyName) {
+  els.sysConfigStatus.textContent = `Connecting to ${friendlyName}\u2026`;
+  try {
+    const { active } = await setSystemConfig(friendlyName);
+    systemConfig = active || friendlyName;
+    await setStoredSystemConfig(systemConfig);
+    els.systemConfigView.hidden = true;
+    els.input.disabled = false;
+    els.attachBtn.disabled = false;
+    updateSendEnabled();
+    docTypesLoaded = false; // force the doc-type dropdown to reload for the newly chosen backend
+    loadContextPanel();
+    addMessage(`Connected to ${systemConfig}. You can now view and upload its documents.`, "typing");
+  } catch (err) {
+    els.sysConfigStatus.textContent = `Couldn't connect to ${friendlyName}: ${err.message}`;
+  }
 }
 
 // Document types are LOB-specific (Salesforce vs Workday etc.), so we do NOT hardcode a list —

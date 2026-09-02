@@ -38,7 +38,6 @@ builder.Services.Configure<AuthOptions>(builder.Configuration.GetSection("Auth")
 builder.Services.Configure<AgentOptions>(builder.Configuration.GetSection("Agent"));
 builder.Services.Configure<McpOptions>(builder.Configuration.GetSection("Mcp"));
 builder.Services.Configure<WorkdayOptions>(builder.Configuration.GetSection("Workday"));
-builder.Services.Configure<OnBaseOptions>(builder.Configuration.GetSection("OnBase"));
 builder.Services.AddHttpClient();
 builder.Services.AddSingleton<SessionStore>();
 
@@ -56,37 +55,28 @@ var auth = app.Services.GetRequiredService<IOptions<AuthOptions>>().Value;
 var agent = app.Services.GetRequiredService<IOptions<AgentOptions>>().Value;
 var mcp = app.Services.GetRequiredService<IOptions<McpOptions>>().Value;
 var workday = app.Services.GetRequiredService<IOptions<WorkdayOptions>>().Value;
-var onbase = app.Services.GetRequiredService<IOptions<OnBaseOptions>>().Value;
 var sessions = app.Services.GetRequiredService<SessionStore>();
 var httpFactory = app.Services.GetRequiredService<IHttpClientFactory>();
 var workdayTokens = new WorkdayTokenCache();
 var log = app.Logger;
 
-// When the MCP's active ECM system is an OnBase/CFS config (its friendlyName != the configured CIC
-// name), the panel must use the OnBase keyword document-query path instead of the CIC record-scoped
-// list, and stamp the record id into the OnBase keyword field on upload. Resolved from the MCP's
-// in-memory selector; on any failure we fall back to the CIC path so Salesforce is never broken.
-async Task<bool> IsOnBaseActiveAsync(CancellationToken ct)
+// Returns the friendlyName of the ECM system the MCP is currently pointed at ("" if none). Used by the
+// system-config endpoints; document listing/upload are backend-agnostic and don't branch on it.
+async Task<string> ActiveSystemFriendlyNameAsync(CancellationToken ct)
 {
     try
     {
         var text = await McpJsonRpc.CallToolAsync(httpFactory, mcp, "get_active_system_configuration", new { }, log, ct);
         int a = text?.IndexOf('\'') ?? -1;
         int b = a >= 0 ? text!.IndexOf('\'', a + 1) : -1;
-        var name = (a >= 0 && b > a) ? text!.Substring(a + 1, b - a - 1) : "";
-        return !string.IsNullOrWhiteSpace(name)
-            && !string.Equals(name, onbase.CicFriendlyName, StringComparison.OrdinalIgnoreCase);
+        return (a >= 0 && b > a) ? text!.Substring(a + 1, b - a - 1) : "";
     }
     catch (Exception ex)
     {
-        log.LogWarning(ex, "Could not resolve the active ECM system; using the CIC list path.");
-        return false;
+        log.LogWarning(ex, "Could not resolve the active ECM system.");
+        return "";
     }
 }
-
-string OnBaseKeywordField(string businessObjectType) =>
-    onbase.KeywordFieldByType.TryGetValue(businessObjectType, out var f) && !string.IsNullOrWhiteSpace(f)
-        ? f : onbase.DefaultKeywordFieldId;
 
 // ---------- Exchange an auth code (from the extension's PKCE flow) for a session ----------
 // The extension runs the interactive PKCE login (redirect_uri = its chromiumapp.org URL, which
@@ -365,23 +355,28 @@ app.MapPost("/api/context", async (HttpContext ctx, ContextRequest req) =>
     try
     {
         using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(120));
-        // OnBase/CFS can't use the CIC record-scoped list_documents (501 stub); it lists via the keyword
-        // document-query, filtering on the record id stored in the OnBase keyword field.
-        var text = await IsOnBaseActiveAsync(cts.Token)
-            ? await McpJsonRpc.CallToolAsync(httpFactory, mcp, "query_documents", new
-            {
-                businessObjectType = req.BusinessObjectType,
-                filterFieldId = OnBaseKeywordField(req.BusinessObjectType),
-                filterValue = req.BusinessObjectId,
-            }, log, cts.Token)
-            : await McpJsonRpc.CallToolAsync(httpFactory, mcp, "list_documents", new
+        // Backend-agnostic listing: query_documents lists a record's documents using the ACTIVE system's
+        // configured queries (merged internally by the tool). If that system has no queries configured,
+        // fall back to the record-scoped list_documents.
+        var text = await McpJsonRpc.CallToolAsync(httpFactory, mcp, "query_documents", new
+        {
+            businessObjectType = req.BusinessObjectType,
+            businessObjectId = req.BusinessObjectId,
+        }, log, cts.Token);
+
+        if (text.Contains("No document queries are configured", StringComparison.OrdinalIgnoreCase))
+        {
+            text = await McpJsonRpc.CallToolAsync(httpFactory, mcp, "list_documents", new
             {
                 businessObjectId = req.BusinessObjectId,
                 businessObjectType = req.BusinessObjectType,
                 onlyMine = req.OnlyMine ?? false,
             }, log, cts.Token);
+        }
 
         var documents = McpJsonRpc.ParseDocumentList(text);
+        log.LogInformation("[/api/context] type={Type} id={Id} -> {Count} document(s)",
+            req.BusinessObjectType, req.BusinessObjectId, documents.Length);
         return Results.Json(new
         {
             businessObjectId = req.BusinessObjectId,
@@ -422,6 +417,62 @@ app.MapGet("/api/doctypes", async (HttpContext ctx) =>
     }
 });
 
+// ---------- System configurations: list the registered ECM systems and set the active one ----------
+// The plugin's onboarding step lets the signed-in user choose which ECM system (CIC / OnBase / …) to
+// connect to. GET returns the registry; POST sets the active systemFriendlyName on the MCP so every
+// subsequent document call (list / upload / doc-types) resolves to that system. Deterministic (no LLM).
+app.MapGet("/api/system-configs", async (HttpContext ctx) =>
+{
+    var sessionId = ctx.Request.Headers["X-BFF-Session"].ToString();
+    if (string.IsNullOrEmpty(sessionId) || !sessions.TryGet(sessionId, out _))
+        return Results.Json(new { error = "not_authenticated" }, statusCode: 401);
+
+    if (string.IsNullOrWhiteSpace(mcp.BaseUrl) || string.IsNullOrWhiteSpace(mcp.ApiKey))
+        return Results.Json(new { error = "mcp_not_configured" }, statusCode: 500);
+
+    try
+    {
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(60));
+        var text = await McpJsonRpc.CallToolAsync(httpFactory, mcp, "list_system_configurations", new { }, log, cts.Token);
+        var active = await ActiveSystemFriendlyNameAsync(cts.Token);
+        var configs = McpJsonRpc.ParseSystemConfigs(text, active);
+        return Results.Json(new { configs, active, raw = text });
+    }
+    catch (Exception ex)
+    {
+        log.LogError(ex, "/api/system-configs failed");
+        return Results.Json(new { error = "system_configs_failed", detail = ex.Message }, statusCode: 502);
+    }
+});
+
+app.MapPost("/api/system-config", async (HttpContext ctx, SystemConfigRequest req) =>
+{
+    var sessionId = ctx.Request.Headers["X-BFF-Session"].ToString();
+    if (string.IsNullOrEmpty(sessionId) || !sessions.TryGet(sessionId, out _))
+        return Results.Json(new { error = "not_authenticated" }, statusCode: 401);
+
+    if (string.IsNullOrWhiteSpace(req.FriendlyName))
+        return Results.Json(new { error = "missing_fields", detail = "friendlyName is required." }, statusCode: 400);
+
+    if (string.IsNullOrWhiteSpace(mcp.BaseUrl) || string.IsNullOrWhiteSpace(mcp.ApiKey))
+        return Results.Json(new { error = "mcp_not_configured" }, statusCode: 500);
+
+    try
+    {
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(60));
+        var text = await McpJsonRpc.CallToolAsync(httpFactory, mcp, "set_active_system_configuration",
+            new { friendlyName = req.FriendlyName }, log, cts.Token);
+        var active = await ActiveSystemFriendlyNameAsync(cts.Token);
+        log.LogInformation("/api/system-config: active system set to '{Active}'", active);
+        return Results.Json(new { active, raw = text });
+    }
+    catch (Exception ex)
+    {
+        log.LogError(ex, "/api/system-config failed for {Name}", req.FriendlyName);
+        return Results.Json(new { error = "set_system_config_failed", detail = ex.Message }, statusCode: 502);
+    }
+});
+
 // ---------- Direct upload: attach a file to the record on the browser screen ----------
 // The extension's upload section posts the file bytes + the target record (auto-filled from the
 // detected context) + the chosen document type here. We stage the bytes on the MCP server and then
@@ -448,15 +499,6 @@ app.MapPost("/api/upload", async (HttpContext ctx, UploadRequest req) =>
     var stagingUrl = $"{mcp.BaseUrl.TrimEnd('/')}/staging/upload";
     var stageHttp = httpFactory.CreateClient();
     stageHttp.Timeout = TimeSpan.FromSeconds(120);
-
-    // OnBase content types reject hfs_Name; stamp the record id into the OnBase keyword field instead so
-    // the same id lists the document back via query_documents. Resolved once for all attachments.
-    bool isOnBase;
-    using (var probeCts = new CancellationTokenSource(TimeSpan.FromSeconds(30)))
-        isOnBase = await IsOnBaseActiveAsync(probeCts.Token);
-    string? onBaseAttributesJson = isOnBase
-        ? JsonSerializer.Serialize(new[] { new { name = OnBaseKeywordField(req.BusinessObjectType), value = req.BusinessObjectId } })
-        : null;
 
     var uploaded = new List<string>();
     var errors = new List<string>();
@@ -508,24 +550,16 @@ app.MapPost("/api/upload", async (HttpContext ctx, UploadRequest req) =>
         try
         {
             using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(120));
-            object uploadArgs = onBaseAttributesJson is null
-                ? new
-                {
-                    stagingId,
-                    businessObjectId = req.BusinessObjectId,
-                    businessObjectType = req.BusinessObjectType,
-                    ecmContentTypeName = req.EcmContentTypeName,
-                    documentName = stagedName,
-                }
-                : new
-                {
-                    stagingId,
-                    businessObjectId = req.BusinessObjectId,
-                    businessObjectType = req.BusinessObjectType,
-                    ecmContentTypeName = req.EcmContentTypeName,
-                    documentName = stagedName,
-                    additionalAttributesJson = onBaseAttributesJson,
-                };
+            // The upload tool derives any backend-specific metadata (e.g. OnBase keywords) from the active
+            // system's config itself, so we just pass the record + content type.
+            var uploadArgs = new
+            {
+                stagingId,
+                businessObjectId = req.BusinessObjectId,
+                businessObjectType = req.BusinessObjectType,
+                ecmContentTypeName = req.EcmContentTypeName,
+                documentName = stagedName,
+            };
             var (text, isError) = await McpJsonRpc.CallToolWithStatusAsync(httpFactory, mcp, "upload_staged_file", uploadArgs, log, cts.Token);
 
             // The MCP call can succeed at the JSON-RPC level while the tool itself reports a failure
@@ -1340,6 +1374,57 @@ static class McpJsonRpc
         return docs.ToArray();
     }
 
+    // Parses the list_system_configurations tool's raw JSON ({ data: [ { friendlyName, systemType,
+    // description, active, default, ... } ], ... }) into simple objects for the plugin's system picker.
+    public static object[] ParseSystemConfigs(string text, string active)
+    {
+        var list = new List<object>();
+        if (string.IsNullOrWhiteSpace(text)) return list.ToArray();
+        try
+        {
+            using var doc = System.Text.Json.JsonDocument.Parse(text);
+            var root = doc.RootElement;
+            System.Text.Json.JsonElement arr = default;
+            if (root.ValueKind == System.Text.Json.JsonValueKind.Array) arr = root;
+            else if (root.ValueKind == System.Text.Json.JsonValueKind.Object
+                     && root.TryGetProperty("data", out var d) && d.ValueKind == System.Text.Json.JsonValueKind.Array) arr = d;
+            if (arr.ValueKind != System.Text.Json.JsonValueKind.Array) return list.ToArray();
+
+            static string? Str(System.Text.Json.JsonElement e, params string[] names)
+            {
+                foreach (var n in names)
+                    if (e.TryGetProperty(n, out var v) && v.ValueKind == System.Text.Json.JsonValueKind.String)
+                        return v.GetString();
+                return null;
+            }
+            static bool Bool(System.Text.Json.JsonElement e, params string[] names)
+            {
+                foreach (var n in names)
+                    if (e.TryGetProperty(n, out var v)
+                        && (v.ValueKind == System.Text.Json.JsonValueKind.True || v.ValueKind == System.Text.Json.JsonValueKind.False))
+                        return v.GetBoolean();
+                return false;
+            }
+
+            foreach (var item in arr.EnumerateArray())
+            {
+                if (item.ValueKind != System.Text.Json.JsonValueKind.Object) continue;
+                var friendlyName = Str(item, "friendlyName", "FriendlyName");
+                if (string.IsNullOrWhiteSpace(friendlyName)) continue;
+                list.Add(new
+                {
+                    friendlyName,
+                    systemType = Str(item, "systemType", "SystemType") ?? "",
+                    description = Str(item, "description", "Description") ?? "",
+                    isDefault = Bool(item, "default", "Default", "isDefault"),
+                    isActive = string.Equals(friendlyName, active, StringComparison.OrdinalIgnoreCase),
+                });
+            }
+        }
+        catch (System.Text.Json.JsonException) { }
+        return list.ToArray();
+    }
+
     // Extracts document (content) type names from the list_document_types tool text. The tool's
     // output format isn't strictly specified, so this is tolerant: it handles bullet lists,
     // comma-separated single lines, and "name:"/"id:" prefixed lines, returning a de-duplicated set.
@@ -1356,6 +1441,17 @@ static class McpJsonRpc
             if (t.Length is < 2 or > 64) return;
             if (t.Contains(' ')) return;
             if (!System.Text.RegularExpressions.Regex.IsMatch(t, "^[A-Za-z][A-Za-z0-9._-]+$")) return;
+            if (found.Any(x => string.Equals(x, t, StringComparison.OrdinalIgnoreCase))) return;
+            found.Add(t);
+        }
+
+        // Like Add but for names taken from the structured JSON list, where a content type name can
+        // legitimately contain spaces and punctuation (e.g. OnBase "COM - Application", "SCH - Schedule A").
+        void AddName(string? token)
+        {
+            if (string.IsNullOrWhiteSpace(token)) return;
+            var t = token.Trim().Trim('"', '\'').Trim();
+            if (t.Length is < 1 or > 96) return;
             if (found.Any(x => string.Equals(x, t, StringComparison.OrdinalIgnoreCase))) return;
             found.Add(t);
         }
@@ -1380,16 +1476,19 @@ static class McpJsonRpc
             {
                 foreach (var item in arr.EnumerateArray())
                 {
-                    if (item.ValueKind == System.Text.Json.JsonValueKind.String) { Add(item.GetString()); continue; }
+                    if (item.ValueKind == System.Text.Json.JsonValueKind.String) { AddName(item.GetString()); continue; }
                     if (item.ValueKind != System.Text.Json.JsonValueKind.Object) continue;
-                    foreach (var prop in new[] { "DocumentTypeId", "DocumentTypeName", "documentTypeId",
-                                                 "documentTypeName", "ecmContentTypeName", "id", "name" })
+                    // Prefer the human-readable NAME (which may contain spaces, e.g. OnBase
+                    // "COM - Application") over the numeric id, so the dropdown shows a usable value and
+                    // upload_staged_file receives the ecmContentTypeName it expects.
+                    foreach (var prop in new[] { "DocumentTypeName", "documentTypeName", "ecmContentTypeName",
+                                                 "name", "DocumentTypeId", "documentTypeId", "id" })
                     {
                         if (item.TryGetProperty(prop, out var pv)
                             && pv.ValueKind == System.Text.Json.JsonValueKind.String
                             && !string.IsNullOrWhiteSpace(pv.GetString()))
                         {
-                            Add(pv.GetString());
+                            AddName(pv.GetString());
                             break;
                         }
                     }
@@ -1514,18 +1613,6 @@ sealed class McpOptions
     public string ApiKey { get; set; } = "";
 }
 
-sealed class OnBaseOptions
-{
-    // The active system friendlyName that means "CIC" (record-scoped list_documents path). Any other
-    // active friendlyName is treated as OnBase/CFS -> use the keyword document-query path.
-    public string CicFriendlyName { get; set; } = "CIC";
-    // OnBase keyword field id (an ecmFieldName from the solution config's metadataFieldImportMappings)
-    // that holds + filters the record id, per businessObjectType.
-    public Dictionary<string, string> KeywordFieldByType { get; set; } = new(StringComparer.OrdinalIgnoreCase);
-    // Fallback keyword field id (232 = Entity Name for account / "COM - Application").
-    public string DefaultKeywordFieldId { get; set; } = "232";
-}
-
 sealed class WorkdayOptions
 {
     // Workday Cloud Platform Staffing API base, e.g. https://api.us.wcp.workday.com/staffing/v7.
@@ -1579,6 +1666,8 @@ sealed record ChatRequest(string Message, string? ConversationId, ChatAttachment
 sealed record ChatAttachment(string? Name, string? Mime, string DataBase64);
 
 sealed record ContextRequest(string BusinessObjectType, string BusinessObjectId, bool? OnlyMine);
+
+sealed record SystemConfigRequest(string FriendlyName);
 
 sealed record UploadRequest(string BusinessObjectType, string BusinessObjectId, string EcmContentTypeName, ChatAttachment[]? Attachments);
 
