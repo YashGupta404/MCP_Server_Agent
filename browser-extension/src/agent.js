@@ -87,6 +87,29 @@ export async function fetchContextDocuments(context) {
 }
 
 /**
+ * Resolves the SIGNED-IN user's own Workday identity (BFF /api/me -> IAM userinfo -> Workday Staffing).
+ * Used to scope the panel's document list/upload to the logged-in user (arizzo) rather than whichever
+ * employee profile page is open.
+ * @returns {Promise<{ wid: string|null, name: string|null, employeeId: string|null }>}
+ */
+export async function fetchMe() {
+  const sessionId = await getSession();
+  if (!sessionId) throw new Error("Not signed in.");
+
+  const response = await fetch(`${CONFIG.bff.baseUrl}/api/me`, {
+    method: "GET",
+    headers: { "X-BFF-Session": sessionId },
+  });
+
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    const detail = data?.detail || data?.error || `HTTP ${response.status}`;
+    throw new Error(`Identity lookup failed (${response.status}): ${detail}`);
+  }
+  return { wid: data.wid ?? null, name: data.name ?? null, employeeId: data.employeeId ?? null };
+}
+
+/**
  * Resolves a Workday worker's WID from a name or Employee ID via the BFF
  * (BFF /api/worker/resolve -> Workday Staffing REST API). Lets the panel auto-fill the
  * businessObjectId (WID) instead of the user copying the 32-char id out of Workday.

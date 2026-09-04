@@ -58,6 +58,8 @@ var workday = app.Services.GetRequiredService<IOptions<WorkdayOptions>>().Value;
 var sessions = app.Services.GetRequiredService<SessionStore>();
 var httpFactory = app.Services.GetRequiredService<IHttpClientFactory>();
 var workdayTokens = new WorkdayTokenCache();
+// Caches the signed-in user's resolved Workday identity (the MCP is a single signed-in user, so process-wide).
+object? selfWorkerIdentity = null;
 var log = app.Logger;
 
 // Returns the friendlyName of the ECM system the MCP is currently pointed at ("" if none). Used by the
@@ -911,6 +913,96 @@ app.MapGet("/api/document/content", async (HttpContext ctx) =>
     }
 });
 
+// ---------- The SIGNED-IN user's own Workday identity ("self") ----------
+// Panel + chatbot default document scope: the logged-in user's OWN records, regardless of which employee
+// profile page is open. Resolves the MCP-signed-in user's name (IAM userinfo, via get_my_identity) to a
+// Workday WID through the Staffing search. Cached process-wide (the MCP is a single signed-in user).
+app.MapGet("/api/me", async (HttpContext ctx) =>
+{
+    var sessionId = ctx.Request.Headers["X-BFF-Session"].ToString();
+    if (string.IsNullOrEmpty(sessionId) || !sessions.TryGet(sessionId, out _))
+        return Results.Json(new { error = "not_authenticated" }, statusCode: 401);
+
+    if (selfWorkerIdentity is not null)
+        return Results.Json(selfWorkerIdentity);
+
+    if (string.IsNullOrWhiteSpace(mcp.BaseUrl) || string.IsNullOrWhiteSpace(mcp.ApiKey))
+        return Results.Json(new { error = "mcp_not_configured" }, statusCode: 500);
+
+    // 1) Ask the MCP who is signed in (IAM userinfo -> display name).
+    string? name = null;
+    try
+    {
+        using var idCts = new CancellationTokenSource(TimeSpan.FromSeconds(60));
+        var (text, isError) = await McpJsonRpc.CallToolWithStatusAsync(httpFactory, mcp, "get_my_identity", new { }, log, idCts.Token);
+        if (!isError && !string.IsNullOrWhiteSpace(text))
+        {
+            var uiIdx = text.IndexOf("userinfo:", StringComparison.OrdinalIgnoreCase);
+            var braceIdx = uiIdx >= 0 ? text.IndexOf('{', uiIdx) : -1;
+            if (braceIdx >= 0)
+            {
+                try { name = JsonNode.Parse(text[braceIdx..])?["name"]?.GetValue<string>(); }
+                catch (JsonException) { }
+            }
+        }
+    }
+    catch (Exception ex) { log.LogError(ex, "/api/me: get_my_identity failed"); }
+
+    if (string.IsNullOrWhiteSpace(name))
+        return Results.Json(new { error = "identity_unresolved", detail = "Could not read the signed-in user's name from IAM userinfo." }, statusCode: 502);
+
+    // 2) Resolve that name to a Workday WID via the Staffing search (exactly-one match = confident).
+    var (token, tokenErr) = await GetWorkdayAccessTokenAsync(ctx);
+    if (token is null)
+        return Results.Json(new { error = "workday_auth_failed", detail = tokenErr }, statusCode: 502);
+
+    try
+    {
+        var http = httpFactory.CreateClient();
+        var url = $"{workday.StaffingBaseUrl.TrimEnd('/')}/workers?search={Uri.EscapeDataString(name)}&limit=20";
+        using var reqMsg = new HttpRequestMessage(HttpMethod.Get, url);
+        reqMsg.Headers.TryAddWithoutValidation("Authorization", $"Bearer {token}");
+        reqMsg.Headers.TryAddWithoutValidation("Accept", "application/json");
+        using var resp = await http.SendAsync(reqMsg);
+        var body = await resp.Content.ReadAsStringAsync();
+        if (!resp.IsSuccessStatusCode)
+            return Results.Json(new { error = "workday_search_failed", detail = body }, statusCode: 502);
+
+        var matches = new List<WorkerMatch>();
+        var root = JsonNode.Parse(body);
+        if (root?["data"] is JsonArray dataArr)
+        {
+            foreach (var item in dataArr)
+            {
+                if (item is not JsonObject o) continue;
+                matches.Add(new WorkerMatch(
+                    Wid: (string?)o["id"],
+                    Name: (string?)o["descriptor"],
+                    EmployeeId: (string?)o["workerId"],
+                    BusinessTitle: (string?)o["primaryJob"]?["businessTitle"],
+                    SupervisoryOrganization: (string?)o["primaryJob"]?["supervisoryOrganization"]?["descriptor"]));
+            }
+        }
+
+        var self = matches.Count == 1 ? matches[0] : null;
+        if (self?.Wid is null)
+        {
+            log.LogWarning("/api/me: name '{Name}' resolved to {Count} workers (not a unique match).", name, matches.Count);
+            return Results.Json(new { error = "identity_ambiguous", name, total = matches.Count, matches }, statusCode: 409);
+        }
+
+        var result = new { wid = self.Wid, name = self.Name, employeeId = self.EmployeeId };
+        selfWorkerIdentity = result;
+        log.LogInformation("/api/me: resolved signed-in user '{Name}' -> WID {Wid} (employeeId {EmployeeId}).", self.Name, self.Wid, self.EmployeeId);
+        return Results.Json(result);
+    }
+    catch (Exception ex)
+    {
+        log.LogError(ex, "/api/me failed");
+        return Results.Json(new { error = "me_failed", detail = ex.Message }, statusCode: 502);
+    }
+});
+
 // ---------- Resolve a Workday worker WID from a name or Employee ID (Workday Staffing REST API) ----------
 // Calls GET {StaffingBaseUrl}/workers?search={q}. The search matches by worker NAME or worker ID
 // (Employee ID), case-insensitive. Each returned worker carries id (=WID), workerId (=Employee ID) and
@@ -1352,23 +1444,33 @@ static class McpJsonRpc
                 }
             }
 
-            // Prefer the document's display name (hfs_Name) as the card title so users see a readable
-            // name instead of an opaque docId. Fall back to the first non-empty attribute, then the docId.
-            // Remove the name attribute from the set so the sub-line doesn't just repeat the title.
-            string name;
-            var nameKey = attributes.Keys.FirstOrDefault(k =>
-                string.Equals(k, "hfs_Name", StringComparison.OrdinalIgnoreCase)
-                && !string.IsNullOrWhiteSpace(attributes[k]));
-            if (nameKey is not null)
+            // Resolve a human display name across LOBs: Salesforce/CIC exposes hfs_Name; Workday/OnBase
+            // exposes "Document Name"/"Name". Fall back to the docId (never an arbitrary attribute, which
+            // used to make OnBase cards show a random column value).
+            string? PickValue(params string[] keys)
             {
-                name = attributes[nameKey];
-                attributes.Remove(nameKey);
+                foreach (var key in keys)
+                {
+                    var k = attributes.Keys.FirstOrDefault(x =>
+                        string.Equals(x, key, StringComparison.OrdinalIgnoreCase)
+                        && !string.IsNullOrWhiteSpace(attributes[x]));
+                    if (k is not null) return attributes[k];
+                }
+                return null;
             }
-            else
+
+            string name = PickValue("hfs_Name", "Document Name", "Name", "File Name", "Title") ?? docId;
+            string? type = PickValue("Document Type", "Type");
+
+            // Drop the columns surfaced as name/type (and their duplicates) so the card sub-line doesn't
+            // just repeat the title/type.
+            foreach (var dup in new[] { "hfs_Name", "Document Name", "Name", "File Name", "Title", "Document Type", "Type", "Document Handle" })
             {
-                name = attributes.Values.FirstOrDefault(v => !string.IsNullOrWhiteSpace(v)) ?? docId;
+                var k = attributes.Keys.FirstOrDefault(x => string.Equals(x, dup, StringComparison.OrdinalIgnoreCase));
+                if (k is not null) attributes.Remove(k);
             }
-            docs.Add(new { docId, name, attributes });
+
+            docs.Add(new { docId, name, type, attributes });
         }
 
         return docs.ToArray();

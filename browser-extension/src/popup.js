@@ -1,7 +1,7 @@
 // Popup chat controller: wires the UI to auth.js + agent.js.
 
 import { interactiveLogin, getSession, clearTokens, getSystemConfig, setStoredSystemConfig, clearSystemConfig } from "./auth.js";
-import { sendMessageToAgent, fetchContextDocuments, openInViewer, fetchDocumentPreview, fetchDocumentContent, uploadDocuments, captureDocument, fetchDocumentTypes, resolveWorker, fetchSystemConfigs, setSystemConfig } from "./agent.js";
+import { sendMessageToAgent, fetchContextDocuments, openInViewer, fetchDocumentPreview, fetchDocumentContent, uploadDocuments, captureDocument, fetchDocumentTypes, resolveWorker, fetchSystemConfigs, setSystemConfig, fetchMe } from "./agent.js";
 
 import * as pdfjsLib from "./lib/pdf.mjs";
 
@@ -84,6 +84,12 @@ let pendingFiles = [];
 let pendingUploadFiles = [];
 /** The business object detected on the active browser tab, or null. */
 let currentContext = null;
+// The signed-in user's own Workday identity (arizzo), resolved once via /api/me and reused. In Workday,
+// the panel scopes documents to THIS user, not whichever employee profile page is open.
+let selfWorker = null;
+function isWorkdayContext(ctx) {
+  return ctx?.source === "workday" || ctx?.businessObjectType === "employee";
+}
 
 // ---- UI helpers ----
 
@@ -561,7 +567,9 @@ function renderDocuments(documents) {
 
     const icon = document.createElement("span");
     icon.className = `docrow__icon docrow__icon--${kind}`;
-    icon.textContent = (extName || "file").slice(0, 4).toUpperCase();
+    // Show the file extension when the name has one (Salesforce/CIC), else a generic doc badge
+    // (Workday/OnBase names have no extension — the document type is shown in the sub-line instead).
+    icon.textContent = (extName || "doc").slice(0, 4).toUpperCase();
 
     const body = document.createElement("div");
     body.className = "docrow__body";
@@ -570,9 +578,14 @@ function renderDocuments(documents) {
     name.textContent = doc.name || doc.docId;
     const sub = document.createElement("div");
     sub.className = "docrow__sub";
-    sub.textContent = attrs.length
-      ? `${attrs.map(([, v]) => v).join(" • ")} • docId ${doc.docId}`
-      : `docId ${doc.docId}`;
+    // Lead with the document type, then any remaining distinct attribute values (deduped), then docId.
+    const subBits = [];
+    if (doc.type) subBits.push(doc.type);
+    for (const [, v] of attrs) {
+      if (v && !subBits.includes(v)) subBits.push(v);
+    }
+    subBits.push(`docId ${doc.docId}`);
+    sub.textContent = subBits.join(" • ");
     body.append(name, sub);
 
     li.append(icon, body);
@@ -689,6 +702,25 @@ async function loadContextPanel() {
     els.workerForm.hidden = true;
     els.workerResults.hidden = true;
     return;
+  }
+
+  // Workday: documents (list + upload) are ALWAYS scoped to the SIGNED-IN user (arizzo), never the
+  // employee profile being viewed. Resolve "self" from the login identity and override the page context.
+  if (isWorkdayContext(currentContext)) {
+    try {
+      if (!selfWorker) selfWorker = await fetchMe();
+      if (selfWorker?.wid) {
+        currentContext = {
+          businessObjectType: "employee",
+          businessObjectId: selfWorker.wid,
+          displayName: selfWorker.name || `employee ${selfWorker.wid}`,
+          source: "workday",
+          self: true,
+        };
+      }
+    } catch (err) {
+      console.warn("[me] could not resolve the signed-in worker:", err);
+    }
   }
 
   // Refresh the upload doc-type list LIVE so it always matches the LOB the signed-in MCP routes to
@@ -967,10 +999,16 @@ async function loadPreviewPage(pageNo) {
 // "open in window / open in tab" actions work, then reveal the fallback panel.
 async function showPreviewFallback() {
   try {
-    const url = await openInViewer(currentPreviewDocId);
-    currentViewerUrl = url;
-    els.viewerOpenTab.href = url;
-    els.viewerFallbackLink.href = url;
+    // openDocumentPreview already resolves a first-party viewer URL for Workday docs; reuse it.
+    // Only hit the viewer resolver when we don't have a URL yet AND we have a docId (calling it
+    // with a null id 400s "missing_docId").
+    if (!currentViewerUrl && currentPreviewDocId) {
+      currentViewerUrl = await openInViewer(currentPreviewDocId);
+    }
+    if (currentViewerUrl) {
+      els.viewerOpenTab.href = currentViewerUrl;
+      els.viewerFallbackLink.href = currentViewerUrl;
+    }
   } catch (err) {
     console.warn("[viewer] could not resolve fallback viewer url:", err);
   }
