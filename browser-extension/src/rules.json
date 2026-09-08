@@ -1,0 +1,25 @@
+[
+  {
+    "id": 1,
+    "priority": 1,
+    "action": {
+      "type": "modifyHeaders",
+      "responseHeaders": [
+        { "header": "x-frame-options", "operation": "remove" },
+        { "header": "frame-options", "operation": "remove" },
+        { "header": "content-security-policy", "operation": "remove" },
+        { "header": "content-security-policy-report-only", "operation": "remove" }
+      ]
+    },
+    "condition": {
+      "requestDomains": [
+        "cic-viewer.staging.app.hyland.com",
+        "cic-viewer.dev.app.hyland.com",
+        "auth.iam.staging.experience.hyland.com",
+        "auth.staging.app.hyland.com",
+        "auth.dev.app.hyland.com"
+      ],
+      "resourceTypes": ["sub_frame"]
+    }
+  }
+]

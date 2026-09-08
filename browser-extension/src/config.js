@@ -10,6 +10,16 @@ export const CONFIG = {
     baseUrl: "https://localhost:5010",
   },
 
+  // ===== CIC standalone viewer — renders CIC-native docs inside the panel iframe =====
+  // URL form: {host}/#/documents/{documentId}?envKey={envKey}
+  // Point host/envKey at the environment your CIC documents live in AND that you can sign into.
+  //   Staging (UCEB/arizzo docs): host cic-viewer.staging.app.hyland.com, envKey appintel-staging-prod
+  //   Dev:                         host cic-viewer.dev.app.hyland.com,     envKey appintel-dev-test
+  cicViewer: {
+    host: "https://cic-viewer.staging.app.hyland.com",
+    envKey: "appintel-staging-prod",
+  },
+
   // ===== Hyland Agent Builder (dev / appintel-dev-test) =====
   agent: {
     id: "a4374edc-32b0-4d01-bc45-8dbc496ed9c6",

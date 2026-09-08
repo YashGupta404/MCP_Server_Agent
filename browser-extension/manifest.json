@@ -31,7 +31,9 @@
     "tabs",
     "activeTab",
     "scripting",
-    "sidePanel"
+    "sidePanel",
+    "declarativeNetRequest",
+    "cookies"
   ],
   "host_permissions": [
     "https://localhost:5010/*",
@@ -44,8 +46,24 @@
     "https://outlook.office.com/*",
     "https://outlook.office365.com/*",
     "https://outlook.live.com/*",
-    "https://outlook.cloud.microsoft/*"
+    "https://outlook.cloud.microsoft/*",
+    "https://cic-viewer.staging.app.hyland.com/*",
+    "https://cic-viewer.dev.app.hyland.com/*",
+    "https://bravo.cic-viewer.sandbox.app.hyland.com/*",
+    "https://auth.iam.staging.experience.hyland.com/*",
+    "https://auth.iam.dev.experience.hyland.com/*",
+    "https://auth.staging.app.hyland.com/*",
+    "https://auth.dev.app.hyland.com/*"
   ],
+  "declarative_net_request": {
+    "rule_resources": [
+      {
+        "id": "viewer_ruleset",
+        "enabled": true,
+        "path": "src/rules.json"
+      }
+    ]
+  },
   "content_scripts": [
     {
       "matches": [
@@ -69,6 +87,15 @@
       "js": ["src/content/launcher.js"],
       "run_at": "document_idle",
       "all_frames": false
+    },
+    {
+      "matches": [
+        "https://cic-viewer.staging.app.hyland.com/*",
+        "https://cic-viewer.dev.app.hyland.com/*"
+      ],
+      "js": ["src/content/viewer-storage.js"],
+      "run_at": "document_start",
+      "all_frames": true
     }
   ],
   "browser_specific_settings": {

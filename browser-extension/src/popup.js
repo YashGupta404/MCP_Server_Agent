@@ -1,5 +1,6 @@
 // Popup chat controller: wires the UI to auth.js + agent.js.
 
+import { CONFIG } from "./config.js";
 import { interactiveLogin, getSession, clearTokens, getSystemConfig, setStoredSystemConfig, clearSystemConfig } from "./auth.js";
 import { sendMessageToAgent, fetchContextDocuments, openInViewer, fetchDocumentPreview, fetchDocumentContent, uploadDocuments, captureDocument, fetchDocumentTypes, resolveWorker, fetchSystemConfigs, setSystemConfig, fetchMe } from "./agent.js";
 
@@ -838,6 +839,18 @@ async function destroyPdf() {
   if (pdfDoc) { try { await pdfDoc.destroy(); } catch {} pdfDoc = null; }
 }
 
+// True when the active ECM system is CIC — CIC docs render in the in-panel iframe viewer.
+function isCicSystem() {
+  return typeof systemConfig === "string" && systemConfig.trim().toLowerCase() === "cic";
+}
+
+// Builds the standalone CIC viewer URL for a CIC-native document:
+//   {host}/#/documents/{documentId}?envKey={envKey}
+function buildCicViewerUrl(docId) {
+  const { host, envKey } = CONFIG.cicViewer;
+  return `${host}/#/documents/${encodeURIComponent(docId)}?envKey=${encodeURIComponent(envKey)}`;
+}
+
 // Entry point: try PDF.js (bytes) first; fall back to image preview; fall back to viewer URL.
 async function openDocumentPreview(doc) {
   currentPreviewDocId = doc.docId;
@@ -855,6 +868,18 @@ async function openDocumentPreview(doc) {
   els.viewerPager.hidden = true;
   els.viewerLoading.hidden = false;
   els.viewerOverlay.hidden = false;
+
+  // CIC documents open in the standalone CIC viewer inside the panel iframe.
+  // Other systems (OnBase/CFS) keep the bytes/preview path below.
+  if (isCicSystem()) {
+    try {
+      const url = buildCicViewerUrl(doc.docId);
+      openViewer(url, doc.name || doc.docId);
+      return;
+    } catch (err) {
+      console.warn("[viewer] CIC viewer URL build failed; falling back to content path:", err);
+    }
+  }
 
   try {
     const result = await fetchDocumentContent(doc.docId);

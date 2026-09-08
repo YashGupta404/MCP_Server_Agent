@@ -15,6 +15,69 @@ ext.runtime.onInstalled.addListener(() => {
   console.info("[background] UCEB Agent Chatbot installed.");
 });
 
+// ---- CIC viewer cookie promotion (in-panel iframe support) ----
+// The CIC viewer + IAM set their session cookies as SameSite=Lax, which the browser never sends
+// inside a cross-site iframe (our side panel). We re-write those cookies to SameSite=None; Secure
+// so the embedded viewer's API calls carry the session and render in the panel instead of erroring.
+const VIEWER_COOKIE_HOSTS = [
+  "cic-viewer.staging.app.hyland.com",
+  "cic-viewer.dev.app.hyland.com",
+  "bravo.cic-viewer.sandbox.app.hyland.com",
+  "auth.iam.staging.experience.hyland.com",
+  "auth.iam.dev.experience.hyland.com",
+  "auth.staging.app.hyland.com",
+  "auth.dev.app.hyland.com",
+];
+
+function viewerHostMatches(domain) {
+  const d = (domain || "").replace(/^\./, "");
+  return VIEWER_COOKIE_HOSTS.some((h) => d === h || d.endsWith("." + h));
+}
+
+// Re-set a Lax/Strict cookie as SameSite=None; Secure, preserving its scope. No-op when the cookie
+// is already unrestricted (this is what stops our own set from looping through onChanged).
+async function promoteViewerCookie(cookie) {
+  if (!cookie || cookie.sameSite === "no_restriction") return;
+  if (!viewerHostMatches(cookie.domain)) return;
+
+  const host = (cookie.domain || "").replace(/^\./, "");
+  const details = {
+    url: `https://${host}${cookie.path || "/"}`,
+    name: cookie.name,
+    value: cookie.value,
+    path: cookie.path,
+    httpOnly: cookie.httpOnly,
+    secure: true,                 // required for SameSite=None
+    sameSite: "no_restriction",
+    storeId: cookie.storeId,
+  };
+  if (!cookie.hostOnly) details.domain = cookie.domain;                 // keep domain-scoped cookies
+  if (!cookie.session && cookie.expirationDate) details.expirationDate = cookie.expirationDate;
+
+  try {
+    await ext.cookies.set(details);
+  } catch (err) {
+    console.warn("[cookie-promote] failed for", cookie.name, err);
+  }
+}
+
+ext.cookies?.onChanged?.addListener(({ removed, cookie, cause }) => {
+  if (removed || cause === "overwrite") return;   // "overwrite" is the paired delete before a set
+  promoteViewerCookie(cookie);
+});
+
+// Promote any already-present cookies on startup/install.
+(async function sweepViewerCookies() {
+  try {
+    for (const host of VIEWER_COOKIE_HOSTS) {
+      const cookies = await ext.cookies.getAll({ domain: host });
+      for (const c of cookies) await promoteViewerCookie(c);
+    }
+  } catch (err) {
+    console.warn("[cookie-promote] sweep failed:", err);
+  }
+})();
+
 // The toolbar icon only reveals the in-page overlay button (it does NOT open the side panel). The
 // side panel opens only when the user clicks the overlay button (UCEB_OPEN_SIDE_PANEL below).
 try {
