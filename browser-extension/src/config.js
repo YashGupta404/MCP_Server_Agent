@@ -10,12 +10,39 @@ export const CONFIG = {
     baseUrl: "https://localhost:5010",
   },
 
-  // ===== CIC standalone viewer — renders CIC-native docs inside the panel iframe =====
-  // URL form: {host}/#/documents/{documentId}?envKey={envKey}
-  // Point host/envKey at the environment your CIC documents live in AND that you can sign into.
-  //   Staging (UCEB/arizzo docs): host cic-viewer.staging.app.hyland.com, envKey appintel-staging-prod
-  //   Dev:                         host cic-viewer.dev.app.hyland.com,     envKey appintel-dev-test
-  cicViewer: {
+  // ===== CIC viewer, keyed by the active ECM system config (systemFriendlyName) =====
+  // EVERY document — CIC-native or OnBase/CFS — renders in the CIC viewer inside the panel iframe.
+  //   kind "documents": {host}/#/documents/{docId}?envKey={envKey}                 (CIC-native)
+  //   kind "cfs":       {host}/#/cfs/{integrationId}/{docId}/{logicalPartId}?envKey=... (OnBase/CFS)
+  // host + envKey are ENVIRONMENT-specific: Salesforce/CIC = dev, Workday/OnBase = staging.
+  viewers: {
+    // Salesforce / CIC-native — staging environment.
+    cic: {
+      kind: "documents",
+      host: "https://cic-viewer.staging.app.hyland.com",
+      envKey: "appintel-staging-prod",
+    },
+    // Workday / OnBase via CFS — staging environment.
+    onbase_hcm_stg: {
+      kind: "cfs",
+      host: "https://cic-viewer.staging.app.hyland.com",
+      envKey: "appintel-staging-prod",
+      integrationId: "532c245c-a412-4f1e-8878-3097588179e5",
+      logicalPartId: 1,
+    },
+    // Salesforce / OnBase via CFS — staging environment.
+    // NOTE: integrationId is a candidate (CF_Salesforce_OnBase from the CFS Admin Portal) — verify it.
+    OnBase9714: {
+      kind: "cfs",
+      host: "https://cic-viewer.staging.app.hyland.com",
+      envKey: "appintel-staging-prod",
+      integrationId: "14f19da9-705e-4674-b1a4-7d97617515bd",
+      logicalPartId: 1,
+    },
+  },
+  // Fallback when the active system config isn't listed above.
+  defaultViewer: {
+    kind: "documents",
     host: "https://cic-viewer.staging.app.hyland.com",
     envKey: "appintel-staging-prod",
   },

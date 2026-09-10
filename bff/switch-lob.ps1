@@ -65,7 +65,7 @@
 [CmdletBinding()]
 param(
     [Parameter(Mandatory = $true)]
-    [ValidateSet('salesforce', 'workday', 'workday-staging')]
+    [ValidateSet('salesforce', 'salesforce-staging', 'workday', 'workday-staging')]
     [string]$Lob,
 
     [switch]$SetSecret,
@@ -106,6 +106,14 @@ $LobConfig = @{
         Scopes      = 'openid profile offline_access uceb environment_authorization hxp.nucleus.account hxp'
         Iam         = 'dev'
         UcebBaseUrl = 'http://localhost:5000'
+    }
+    # Staging Salesforce confidential client (Appintel-Staging Prod env). Iam='staging' + deployed staging
+    # UCEB (handles CIC content by token; no local UCEB/CFS exchange needed for Salesforce/CIC-native).
+    'salesforce-staging' = @{
+        ClientId    = 'wsc-f3ec0fd9-47a3-4f03-a67f-28b70100141b'
+        Scopes      = 'openid profile offline_access uceb environment_authorization hxp.nucleus.account hxp'
+        Iam         = 'staging'
+        UcebBaseUrl = 'https://api.uceb.app-intel.staging.app.hyland.com'
     }
 }
 
@@ -156,11 +164,13 @@ function Set-McpIamEndpoints([string]$iam) {
         $txt = $txt.Replace('https://auth.dev.app.hyland.com/idp', 'https://auth.staging.app.hyland.com/idp')
         $txt = $txt.Replace('https://api.platform.dev.app.hyland.com', 'https://api.platform.staging.app.hyland.com')
         $txt = $txt.Replace('"content.dev.app.hyland.com"', '"content.staging.app.hyland.com"')
+        $txt = $txt.Replace('https://bravo.cic-viewer.sandbox.app.hyland.com', 'https://cic-viewer.staging.app.hyland.com')
     }
     else {
         $txt = $txt.Replace('https://auth.staging.app.hyland.com/idp', 'https://auth.dev.app.hyland.com/idp')
         $txt = $txt.Replace('https://api.platform.staging.app.hyland.com', 'https://api.platform.dev.app.hyland.com')
         $txt = $txt.Replace('"content.staging.app.hyland.com"', '"content.dev.app.hyland.com"')
+        $txt = $txt.Replace('https://cic-viewer.staging.app.hyland.com', 'https://bravo.cic-viewer.sandbox.app.hyland.com')
     }
     Set-Content -Path $McpAppSettings -Value $txt -NoNewline -Encoding UTF8
     Write-Host "MCP appsettings IAM endpoints -> $iam" -ForegroundColor DarkGray

@@ -91,7 +91,8 @@
     {
       "matches": [
         "https://cic-viewer.staging.app.hyland.com/*",
-        "https://cic-viewer.dev.app.hyland.com/*"
+        "https://cic-viewer.dev.app.hyland.com/*",
+        "https://bravo.cic-viewer.sandbox.app.hyland.com/*"
       ],
       "js": ["src/content/viewer-storage.js"],
       "run_at": "document_start",

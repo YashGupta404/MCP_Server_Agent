@@ -844,13 +844,6 @@ function isCicSystem() {
   return typeof systemConfig === "string" && systemConfig.trim().toLowerCase() === "cic";
 }
 
-// Builds the standalone CIC viewer URL for a CIC-native document:
-//   {host}/#/documents/{documentId}?envKey={envKey}
-function buildCicViewerUrl(docId) {
-  const { host, envKey } = CONFIG.cicViewer;
-  return `${host}/#/documents/${encodeURIComponent(docId)}?envKey=${encodeURIComponent(envKey)}`;
-}
-
 // Entry point: try PDF.js (bytes) first; fall back to image preview; fall back to viewer URL.
 async function openDocumentPreview(doc) {
   currentPreviewDocId = doc.docId;
@@ -869,16 +862,17 @@ async function openDocumentPreview(doc) {
   els.viewerLoading.hidden = false;
   els.viewerOverlay.hidden = false;
 
-  // CIC documents open in the standalone CIC viewer inside the panel iframe.
-  // Other systems (OnBase/CFS) keep the bytes/preview path below.
-  if (isCicSystem()) {
-    try {
-      const url = buildCicViewerUrl(doc.docId);
+  // Every document (CIC-native or OnBase/CFS) renders in the CIC viewer inside the panel iframe.
+  // The MCP resolves the full viewer URL (host + envKey + documents/cfs route) from the active
+  // system config + environment, so the plugin just loads whatever URL it returns.
+  try {
+    const url = await openInViewer(doc.docId);
+    if (url) {
       openViewer(url, doc.name || doc.docId);
       return;
-    } catch (err) {
-      console.warn("[viewer] CIC viewer URL build failed; falling back to content path:", err);
     }
+  } catch (err) {
+    console.warn("[viewer] MCP viewer URL resolve failed; falling back to content path:", err);
   }
 
   try {
