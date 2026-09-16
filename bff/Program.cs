@@ -1459,12 +1459,12 @@ static class McpJsonRpc
                 return null;
             }
 
-            string name = PickValue("hfs_Name", "Document Name", "Name", "File Name", "Title") ?? docId;
+            string name = PickValue("hfs_Name", "Document", "Document Name", "Name", "File Name", "Title") ?? docId;
             string? type = PickValue("Document Type", "Type");
 
             // Drop the columns surfaced as name/type (and their duplicates) so the card sub-line doesn't
             // just repeat the title/type.
-            foreach (var dup in new[] { "hfs_Name", "Document Name", "Name", "File Name", "Title", "Document Type", "Type", "Document Handle" })
+            foreach (var dup in new[] { "hfs_Name", "Document", "Document Name", "Name", "File Name", "Title", "Document Type", "Type", "Document Handle" })
             {
                 var k = attributes.Keys.FirstOrDefault(x => string.Equals(x, dup, StringComparison.OrdinalIgnoreCase));
                 if (k is not null) attributes.Remove(k);

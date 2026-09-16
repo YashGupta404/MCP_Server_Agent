@@ -36,6 +36,7 @@ const els = {
   contextToggle: document.getElementById("contextToggle"),
   docList: document.getElementById("docList"),
   docPane: document.getElementById("docPane"),
+  docSearch: document.getElementById("docSearch"),
   metaPane: document.getElementById("metaPane"),
   dropzone: document.getElementById("dropzone"),
   actAttach: document.getElementById("actAttach"),
@@ -85,6 +86,9 @@ let pendingFiles = [];
 let pendingUploadFiles = [];
 /** The business object detected on the active browser tab, or null. */
 let currentContext = null;
+// Monotonic token for loadContextPanel — a newer record load bumps it so a slower, older fetch that
+// resolves late doesn't overwrite the current record's documents (fixes stale list on record change).
+let contextLoadSeq = 0;
 // The signed-in user's own Workday identity (arizzo), resolved once via /api/me and reused. In Workday,
 // the panel scopes documents to THIS user, not whichever employee profile page is open.
 let selfWorker = null;
@@ -288,6 +292,19 @@ function addMessage(text, kind, files) {
   els.messages.appendChild(el);
   els.messages.scrollTop = els.messages.scrollHeight;
   return el;
+}
+
+// If the agent's reply contains a Hyland viewer link (e.g. after "view document X"), also open that
+// document in the in-panel viewer. The chat still shows the link.
+function openViewerFromReplyIfAny(reply) {
+  if (typeof reply !== "string") return;
+  const urls = reply.match(/https?:\/\/[^\s)"'\]]+/gi) || [];
+  const viewer = urls
+    .map((u) => u.replace(/[.,);\]]+$/, ""))
+    .find((u) => /cic-viewer|\/#\/(?:documents|cfs)\//i.test(u));
+  if (!viewer) return;
+  const idMatch = reply.match(/document\s+([A-Za-z0-9_-]+)/i);
+  openViewer(viewer, idMatch ? `Document ${idMatch[1]}` : "Document");
 }
 
 function setSignedIn(state) {
@@ -548,11 +565,38 @@ function setContextStatus(text) {
 }
 
 function renderDocuments(documents) {
-  loadedDocuments = documents;
+  loadedDocuments = Array.isArray(documents) ? documents : [];
+  // The search box is only useful when there's something to search.
+  els.docSearch.hidden = loadedDocuments.length === 0;
+  if (loadedDocuments.length === 0) els.docSearch.value = "";
+  renderDocRows(filterDocs(loadedDocuments, els.docSearch.value));
+}
+
+// Case-insensitive filter over a document's name, type, docId, and every metadata field value.
+function filterDocs(documents, term) {
+  const q = (term || "").trim().toLowerCase();
+  if (!q) return documents;
+  return documents.filter((doc) => {
+    const bits = [doc.name, doc.type, doc.docId];
+    if (doc.attributes) for (const [k, v] of Object.entries(doc.attributes)) { bits.push(k, v); }
+    return bits.filter(Boolean).join(" ").toLowerCase().includes(q);
+  });
+}
+
+function renderDocRows(documents) {
   els.docList.innerHTML = "";
-  els.tabDocuments.textContent = documents.length ? `Documents (${documents.length})` : "Documents";
-  if (!documents.length) {
+  const total = loadedDocuments.length;
+  const shown = documents.length;
+  els.tabDocuments.textContent = total
+    ? (shown === total ? `Documents (${total})` : `Documents (${shown}/${total})`)
+    : "Documents";
+
+  if (total === 0) {
     setContextStatus("No content linked to this record yet — use Attach or drop a file below.");
+    return;
+  }
+  if (shown === 0) {
+    setContextStatus(`No documents match "${(els.docSearch.value || "").trim()}".`);
     return;
   }
   setContextStatus(null);
@@ -564,12 +608,10 @@ function renderDocuments(documents) {
 
     const li = document.createElement("li");
     li.className = "docrow";
-    li.title = `Open ${doc.name || doc.docId} in the Hyland viewer`;
+    li.title = `Open ${doc.name || doc.docId} in the Hyland viewer (docId ${doc.docId})`;
 
     const icon = document.createElement("span");
     icon.className = `docrow__icon docrow__icon--${kind}`;
-    // Show the file extension when the name has one (Salesforce/CIC), else a generic doc badge
-    // (Workday/OnBase names have no extension — the document type is shown in the sub-line instead).
     icon.textContent = (extName || "doc").slice(0, 4).toUpperCase();
 
     const body = document.createElement("div");
@@ -579,15 +621,30 @@ function renderDocuments(documents) {
     name.textContent = doc.name || doc.docId;
     const sub = document.createElement("div");
     sub.className = "docrow__sub";
-    // Lead with the document type, then any remaining distinct attribute values (deduped), then docId.
-    const subBits = [];
-    if (doc.type) subBits.push(doc.type);
-    for (const [, v] of attrs) {
-      if (v && !subBits.includes(v)) subBits.push(v);
-    }
-    subBits.push(`docId ${doc.docId}`);
-    sub.textContent = subBits.join(" • ");
+    sub.textContent = doc.type || `docId ${doc.docId}`;
     body.append(name, sub);
+
+    // Show the document type + every other configured metadata field as labeled chips.
+    const metaPairs = [];
+    if (doc.type) metaPairs.push(["Type", doc.type]);
+    for (const [k, v] of attrs) { if (v && String(v).trim()) metaPairs.push([k, v]); }
+    if (metaPairs.length) {
+      const meta = document.createElement("div");
+      meta.className = "docrow__meta";
+      for (const [k, v] of metaPairs) {
+        const chip = document.createElement("span");
+        chip.className = "docrow__metachip";
+        const kk = document.createElement("span");
+        kk.className = "docrow__metak";
+        kk.textContent = k;
+        const vv = document.createElement("span");
+        vv.className = "docrow__metav";
+        vv.textContent = v;
+        chip.append(kk, vv);
+        meta.appendChild(chip);
+      }
+      body.appendChild(meta);
+    }
 
     li.append(icon, body);
 
@@ -602,10 +659,6 @@ function renderDocuments(documents) {
     li.addEventListener("click", async () => {
       li.style.opacity = "0.6";
       try {
-        // Render the document INSIDE the panel as an image blob (BFF -> MCP -> UCEB file-preview).
-        // This works for BOTH Salesforce and Workday and avoids the login-gated viewer SPA, which
-        // can't get a session cookie in a cross-site iframe. Docs with no rendition fall back to
-        // opening the first-party viewer in a window/tab.
         await openDocumentPreview(doc);
       } catch (err) {
         console.error("[viewer] openDocumentPreview failed:", err);
@@ -695,7 +748,9 @@ function selectTab(tab) {
 }
 
 async function loadContextPanel() {
+  const loadToken = ++contextLoadSeq;
   currentContext = signedIn ? await getActiveContext() : null;
+  if (loadToken !== contextLoadSeq) return; // a newer record load started while awaiting the context
 
   if (!signedIn) {
     els.contextPanel.hidden = true;
@@ -798,8 +853,10 @@ async function loadContextPanel() {
 
   try {
     const { documents } = await fetchContextDocuments(currentContext);
+    if (loadToken !== contextLoadSeq) return; // superseded by a newer record load — don't clobber it
     renderDocuments(documents);
   } catch (err) {
+    if (loadToken !== contextLoadSeq) return;
     setContextStatus(`Couldn't load related content: ${err.message}`);
   }
 }
@@ -1388,6 +1445,9 @@ els.workerForm.addEventListener("submit", async (event) => {
 
 els.contextRefresh.addEventListener("click", () => loadContextPanel());
 
+// Live client-side filter of the loaded document list by name / type / any metadata value.
+els.docSearch.addEventListener("input", () => renderDocRows(filterDocs(loadedDocuments, els.docSearch.value)));
+
 // Collapse/expand the context panel so the chat can use the full height.
 els.contextToggle.addEventListener("click", () => {
   const collapsed = els.contextPanel.classList.toggle("hec--collapsed");
@@ -1492,6 +1552,8 @@ els.form.addEventListener("submit", async (event) => {
     const { reply } = await sendMessageToAgent(outgoing, files);
     typing.remove();
     addMessage(reply, "agent");
+    // If the agent returned a viewer link, also open the document in the in-panel viewer.
+    openViewerFromReplyIfAny(reply);
     // An upload may have changed the record's documents — refresh the panel.
     if (currentContext && files.length) loadContextPanel();
   } catch (err) {

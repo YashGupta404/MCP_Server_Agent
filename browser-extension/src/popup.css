@@ -937,6 +937,54 @@ body {
   text-overflow: ellipsis;
 }
 
+.doclist__search {
+  width: 100%;
+  box-sizing: border-box;
+  margin: 0 0 8px;
+  padding: 7px 10px;
+  font-size: 12px;
+  color: #1b2430;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: #fff;
+}
+
+.doclist__search:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.docrow__meta {
+  margin-top: 4px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 6px;
+}
+
+.docrow__metachip {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 3px;
+  max-width: 100%;
+  padding: 1px 6px;
+  font-size: 10px;
+  line-height: 1.5;
+  border-radius: 4px;
+  background: #eef1f6;
+}
+
+.docrow__metak {
+  color: var(--muted);
+  font-weight: 600;
+}
+
+.docrow__metav {
+  color: #1b2430;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 .docrow__ver {
   flex: none;
   font-size: 11px;

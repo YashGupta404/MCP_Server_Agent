@@ -83,29 +83,54 @@ $McpAppSettings = 'C:\Users\ygupta\OneDrive - Hyland\Hyland.Experience.UCEB.Api\
 # --- Per-LOB IAM configuration ---------------------------------------------------------------------
 # Edit ClientId/Scopes to match your IAM app registrations. The Workday values are already filled in
 # from the current setup; fill in the Salesforce confidential client id before first use.
+#
+# =====================================================================================================
+# !!! DO NOT ADD 'environment_authorization' TO THE workday-staging SCOPES !!!  (verified 2026-09-15)
+# -----------------------------------------------------------------------------------------------------
+# The workday-staging login user (arizzo@aurahyland.onmicrosoft.com) is NOT granted the
+# 'environment_authorization' scope on the wsc-c8e114b2 client. If that scope is requested, IAM
+# authenticates arizzo fine BUT then fails the consent/authorization step with the error page
+# "Unable to perform authorization" (the callback never returns a code, so the MCP just times out).
+# Proven by isolation: full scopes => fails; drop ONLY environment_authorization => login succeeds.
+#
+# CONSEQUENCE / GOTCHA: the token's app-key claim (hxp_authorization -> appkey=wdx, which auto-routes
+# Workday record-doc calls to 'bow') is delivered BY the environment_authorization scope, NOT by the
+# 'wdx' scope. With environment_authorization removed the token has NO appkey, so routing would fall
+# back to 'api'. That is why every LOB below now pins an explicit 'BasePath' (workday* => 'bow',
+# salesforce* => 'api') which this script writes to Uceb:BusinessObjectBasePath so routing stays
+# correct WITHOUT relying on the token claim.
+#
+# If arizzo ever gets the environment_authorization grant back (ask IAM/mentor), you MAY re-add the
+# scope AND it becomes harmless because BasePath already forces the right route.
+# =====================================================================================================
 $LobConfig = @{
     workday    = @{
         ClientId    = 'wsc-6f1759c9-08b0-4404-a0ab-31002fcf3cd3'
         Scopes      = 'openid profile offline_access uceb environment_authorization hxp.nucleus.account hxp wdx'
         Iam         = 'dev'
         UcebBaseUrl = 'http://localhost:5000'
+        BasePath    = 'bow'
     }
-    # Staging Hyland-for-Workday confidential client (Appintel-Staging Prod env, user arizzo). Activating
+    # Staging Hyland-for-Workday confidential client (Appintel-Staging env, user arizzo). Activating
     # this LOB AUTO-FLIPS the MCP appsettings IAM endpoints to staging (Iam='staging') AND points Uceb:BaseUrl
     # at the DEPLOYED staging UCEB - which does the CFS token exchange INTERNALLY (creds in AWS), so NO local
     # UCEB API and NO local TokenExchange creds are needed for Workday. The secret is NOT here - it lives in
     # MCP user-secrets (Lob:workday-staging:ClientSecret / Auth:ClientSecret).
+    # NOTE: NO 'environment_authorization' scope here on purpose - see the big warning above. Routing to
+    # 'bow' is forced via BasePath below (the appkey claim is gone without that scope).
     'workday-staging' = @{
         ClientId    = 'wsc-c8e114b2-4e5f-4f18-829e-063561998bbb'
-        Scopes      = 'openid profile offline_access uceb environment_authorization hxp.nucleus.account hxp wdx'
+        Scopes      = 'openid profile offline_access uceb hxp.nucleus.account hxp wdx'
         Iam         = 'staging'
         UcebBaseUrl = 'https://api.uceb.app-intel.staging.app.hyland.com'
+        BasePath    = 'bow'
     }
     salesforce = @{
         ClientId    = 'wsc-dc7e0e46-06d2-4166-874f-149dc8614012'
         Scopes      = 'openid profile offline_access uceb environment_authorization hxp.nucleus.account hxp'
         Iam         = 'dev'
         UcebBaseUrl = 'http://localhost:5000'
+        BasePath    = 'api'
     }
     # Staging Salesforce confidential client (Appintel-Staging Prod env). Iam='staging' + deployed staging
     # UCEB (handles CIC content by token; no local UCEB/CFS exchange needed for Salesforce/CIC-native).
@@ -114,6 +139,7 @@ $LobConfig = @{
         Scopes      = 'openid profile offline_access uceb environment_authorization hxp.nucleus.account hxp'
         Iam         = 'staging'
         UcebBaseUrl = 'https://api.uceb.app-intel.staging.app.hyland.com'
+        BasePath    = 'api'
     }
 }
 
@@ -186,6 +212,19 @@ function Set-McpUcebBaseUrl([string]$baseUrl) {
     Write-Host "MCP Uceb:BaseUrl -> $baseUrl" -ForegroundColor DarkGray
 }
 
+# Pin the record-document route explicitly per LOB (workday* => 'bow', salesforce* => 'api'). This is
+# REQUIRED because workday-staging cannot request the 'environment_authorization' scope (arizzo isn't
+# granted it - see the warning near $LobConfig), and that scope is what used to carry the token appkey
+# claim the router auto-detects from. Forcing Uceb:BusinessObjectBasePath keeps routing correct without
+# the claim. Regex replace only the standalone "BusinessObjectBasePath" key.
+function Set-McpBusinessObjectBasePath([string]$basePath) {
+    if ([string]::IsNullOrWhiteSpace($basePath) -or -not (Test-Path $McpAppSettings)) { return }
+    $txt = Get-Content $McpAppSettings -Raw
+    $txt = [regex]::Replace($txt, '"BusinessObjectBasePath"\s*:\s*"[^"]*"', ('"BusinessObjectBasePath": "' + $basePath + '"'))
+    Set-Content -Path $McpAppSettings -Value $txt -NoNewline -Encoding UTF8
+    Write-Host "MCP Uceb:BusinessObjectBasePath -> $basePath" -ForegroundColor DarkGray
+}
+
 $secretKey = "Lob:$Lob`:ClientSecret"
 
 # One-time convenience: if this LOB's per-LOB secret slot is empty but the currently-active
@@ -231,12 +270,13 @@ Save-Secrets
 # Flip the MCP appsettings IAM endpoints + Uceb:BaseUrl to this LOB's environment (dev/staging, local/deployed).
 Set-McpIamEndpoints $config.Iam
 Set-McpUcebBaseUrl $config.UcebBaseUrl
+Set-McpBusinessObjectBasePath $config.BasePath
 
 Write-Host ""
 Write-Host "Active LOB : $Lob" -ForegroundColor Green
 Write-Host "ClientId   : $($config.ClientId)"
 Write-Host "Scopes     : $($config.Scopes)"
-Write-Host "Route      : $(if ($Lob -like 'workday*') { 'bow (auto-detected from token appkey wdx)' } else { 'api (auto-detected)' })"
+Write-Host "Route      : $($config.BasePath) $(if ($Lob -like 'workday*') { '(Workday record-doc route, forced - no environment_authorization scope)' } else { '(Salesforce/CIC route)' })"
 Write-Host "IAM        : $($config.Iam) (MCP Auth/Nucleus/Content endpoints flipped to match)"
 Write-Host "Uceb       : $($config.UcebBaseUrl)"
 Write-Host ""
