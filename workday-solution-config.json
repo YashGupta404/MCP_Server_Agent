@@ -1,0 +1,330 @@
+{
+  "data": {
+    "objectMappings": {
+      "data": [
+        {
+          "businessObjectAttribute": "Employee Object ID",
+          "documentAttribute": {
+            "name": "hcmisbebo_businessObjectId",
+            "id": "hcmisbebo_businessObjectId"
+          }
+        },
+        {
+          "businessObjectAttribute": "Employee ID",
+          "documentAttribute": {
+            "name": "hcmisbeemp_employeeId",
+            "id": "hcmisbeemp_employeeId"
+          }
+        },
+        {
+          "businessObjectAttribute": "First Name",
+          "documentAttribute": {
+            "name": "hcmisbeemp_firstName",
+            "id": "hcmisbeemp_firstName"
+          }
+        },
+        {
+          "businessObjectAttribute": "Last Name",
+          "documentAttribute": {
+            "name": "hcmisbeemp_lastName",
+            "id": "hcmisbeemp_lastName"
+          }
+        },
+        {
+          "businessObjectAttribute": "Hire Date",
+          "documentAttribute": {
+            "name": "hcmisbeemp_hireDate",
+            "id": "hcmisbeemp_hireDate"
+          }
+        },
+        {
+          "businessObjectAttribute": "Termination Date",
+          "documentAttribute": {
+            "name": "hcmisbeemp_termDate",
+            "id": "hcmisbeemp_termDate"
+          }
+        },
+        {
+          "businessObjectAttribute": "Department",
+          "documentAttribute": {
+            "name": "hcmisbeemp_department",
+            "id": "hcmisbeemp_department"
+          }
+        },
+        {
+          "businessObjectAttribute": "Manager Name",
+          "documentAttribute": {
+            "name": "hcmisbeemp_manager",
+            "id": "hcmisbeemp_manager"
+          }
+        }
+      ],
+      "total": 8,
+      "error": {
+        "code": "200",
+        "message": "NoError",
+        "messages": [
+          "NoError"
+        ]
+      }
+    },
+    "documentSearchQueryConfig": {
+      "data": {
+        "documentAttributeGroupId": null,
+        "documentAttributeGroup": null,
+        "businessObjectIdMetadataId": "hcmisbebo_businessObjectId",
+        "businessObjectMetadata": null,
+        "documentSearchCriteria": null,
+        "startDate": null,
+        "endDate": null
+      },
+      "total": 0,
+      "error": null
+    },
+    "documentTypeGroupMappings": {
+      "data": [
+        {
+          "domainName": null,
+          "documentTypeGroup": {
+            "name": "hcmisbeemployee",
+            "id": "hcmisbeemployee"
+          }
+        }
+      ],
+      "total": 1,
+      "error": null
+    },
+    "documentTypeWithBOIDField": {
+      "data": {
+        "id": null,
+        "name": null,
+        "groupId": null
+      },
+      "total": 1,
+      "error": {
+        "code": "200",
+        "message": "NoError",
+        "messages": [
+          "NoError"
+        ]
+      }
+    },
+    "mandatoryDocTypes": {
+      "data": null,
+      "total": 0,
+      "error": {
+        "code": "404",
+        "message": "Configuration key [mandatoryDocTypesCfg_data] does not exist in config data",
+        "messages": [
+          "Configuration key [mandatoryDocTypesCfg_data] does not exist in config data"
+        ]
+      }
+    },
+    "dynamicColumns": {
+      "data": [
+        {
+          "dataField": "simpleDocumentAttributes.hcmisbebp_attachment_id.value",
+          "id": "hcmisbebp_attachment_id",
+          "name": "hcmisbebp_attachment_id",
+          "type": "string",
+          "alias": "Attachment Id"
+        },
+        {
+          "dataField": "simpleDocumentAttributes.hcmisbebp_businessprocessname.value",
+          "id": "hcmisbebp_businessprocessname",
+          "name": "hcmisbebp_businessprocessname",
+          "type": "string",
+          "alias": "Business Process Name"
+        },
+        {
+          "dataField": "simpleDocumentAttributes.docType.value",
+          "id": "docType",
+          "name": "docType",
+          "type": "string",
+          "alias": "Document Type"
+        },
+        {
+          "dataField": "simpleDocumentAttributes.File Preview.value",
+          "id": "filePreview",
+          "name": "File Preview",
+          "type": "image",
+          "alias": "Document_Preview"
+        },
+        {
+          "dataField": "simpleDocumentAttributes.Document Link.value",
+          "id": "documentLink",
+          "name": "Document Link",
+          "type": "externalLink",
+          "alias": "Document Link"
+        }
+      ],
+      "total": 5,
+      "error": {
+        "code": "200",
+        "message": "NoError",
+        "messages": [
+          "NoError"
+        ]
+      }
+    },
+    "businessObjectRoles": {
+      "data": [
+        {
+          "roleId": "8d9435a66f9a431ab5377671801b9841",
+          "roleName": "Manager",
+          "documentAccessPermitted": true,
+          "permissions": [
+            "view"
+          ],
+          "organizationLevel": 1
+        },
+        {
+          "roleId": "dc483d7547274c00b4c13532d35620bb",
+          "roleName": "HR Partner",
+          "documentAccessPermitted": true,
+          "permissions": [
+            "viewcapture"
+          ],
+          "organizationLevel": 1
+        }
+      ],
+      "total": 2,
+      "error": {
+        "code": "200",
+        "message": "NoError",
+        "messages": [
+          "NoError"
+        ]
+      }
+    },
+    "securityGroupConfigs": {
+      "data": null,
+      "total": 0,
+      "error": {
+        "code": "404",
+        "message": "Configuration key [sgCfg_data] does not exist in config data",
+        "messages": [
+          "Configuration key [sgCfg_data] does not exist in config data"
+        ]
+      }
+    },
+    "imageScalingConfigs": {
+      "data": [
+        {
+          "sectionName": "thumbnail",
+          "imageScalingParameters": {
+            "height": 100,
+            "width": 100
+          }
+        },
+        {
+          "sectionName": "captureSuccessPreview",
+          "imageScalingParameters": {
+            "height": 500,
+            "width": 500
+          }
+        }
+      ],
+      "total": 2,
+      "error": {
+        "code": "200",
+        "message": "NoError",
+        "messages": [
+          "NoError"
+        ]
+      }
+    },
+    "endUserGroup": {
+      "data": {
+        "id": "",
+        "name": "Workday HCM User",
+        "role": null
+      },
+      "total": 1,
+      "error": {
+        "code": "200",
+        "message": "NoError",
+        "messages": [
+          "NoError"
+        ]
+      }
+    },
+    "renditionIds": {
+      "data": {
+        "thumbnail": "doclistpreview-ekiva",
+        "captureSuccessPreview": "capturepreview-6lc5q"
+      },
+      "total": 1,
+      "error": {
+        "code": "200",
+        "message": "NoError",
+        "messages": [
+          "NoError"
+        ]
+      }
+    },
+    "businessProcessAttachment": {
+      "data": {
+        "documentTypeId": "employee-application"
+      },
+      "total": 1,
+      "error": {
+        "code": "200",
+        "message": "NoError",
+        "messages": [
+          "NoError"
+        ]
+      }
+    },
+    "securityPolicyName": {
+      "data": null,
+      "total": 0,
+      "error": {
+        "code": "404",
+        "message": "Configuration key [spCfg_name] does not exist in config data",
+        "messages": [
+          "Configuration key [spCfg_name] does not exist in config data"
+        ]
+      }
+    },
+    "securityPolicyNames": {
+      "data": {
+        "readwritePolicy": "org-sync-readwrite-sp",
+        "readPolicy": "org-sync-read-sp",
+        "writePolicy": "org-sync-write-sp"
+      },
+      "total": 1,
+      "error": {
+        "code": "200",
+        "message": "NoError",
+        "messages": [
+          "NoError"
+        ]
+      }
+    },
+    "viewerBaseUrl": {
+      "data": "https://key-6bf3a1c6-0204-46ff-978e-e21a751b24c8.studio.staging.app.hyland.com/workday-s4spr-5f3a5f4c/ui/doc-viewer-tehfi/",
+      "total": 1,
+      "error": {
+        "code": "200",
+        "message": "NoError",
+        "messages": [
+          "NoError"
+        ]
+      }
+    },
+    "commonSettings": {
+      "data": null,
+      "total": 0,
+      "error": {
+        "code": "404",
+        "message": "Configuration key [csCfg_data] does not exist in config data",
+        "messages": [
+          "Configuration key [csCfg_data] does not exist in config data"
+        ]
+      }
+    }
+  },
+  "total": 1,
+  "error": null
+}

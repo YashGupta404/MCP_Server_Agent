@@ -126,12 +126,25 @@
       const t = el && el.textContent ? el.textContent.trim() : "";
       if (t) { name = t; break; }
     }
+    // 2b) Fallback: Workday sets the tab title to "<Name> - View Worker" on a single worker's profile.
+    //     Match ONLY "View Worker" — NOT "View Team"/org-chart pages, which have no single worker and
+    //     would otherwise produce a bogus "not authorised" for a made-up name.
+    if (!name) {
+      const m = (document.title || "").match(/^(.+?)\s*[-–|]\s*View Worker\b/i);
+      if (m) name = m[1].trim();
+    }
     name = name.replace(/\s*\([^)]*\)\s*/g, " ").replace(/\s+/g, " ").trim();
 
-    // Prefer the precise Employee ID; fall back to the name.
-    const query = employeeId || name;
-    if (!query) return null;
-    return { rawType: "employee", needsResolve: true, resolveQuery: query, displayName: name || `Employee ${query}` };
+    // The Employee ID is only shown for workers you're authorised to see (your subordinates). When it's
+    // present, resolve the WID and show their documents. When it's absent (a peer or your own manager),
+    // surface just the NAME so the panel can say you're not authorised — do NOT try to resolve them.
+    if (employeeId) {
+      return { rawType: "employee", needsResolve: true, resolveQuery: employeeId, displayName: name || `Employee ${employeeId}` };
+    }
+    if (name) {
+      return { rawType: "employee", notAuthorized: true, displayName: name };
+    }
+    return null;
   }
 
   // Outlook on the web: modern OWA puts the message id in the path (.../mail/.../id/<id>);
@@ -194,6 +207,18 @@
       };
     }
 
+    // Workday worker with no visible Employee ID (a peer or your own manager) -> not authorised to view
+    // or capture their documents. Carry the scraped NAME so the panel can show a clear message.
+    if (raw.notAuthorized) {
+      return {
+        businessObjectType,
+        notAuthorized: true,
+        displayName: raw.displayName || "this employee",
+        source: host,
+        url: loc.href,
+      };
+    }
+
     if (!raw.businessObjectId) return null;
 
     // Guard against ids too long for the HFS folder-name limit (e.g. Outlook message ids).
@@ -217,6 +242,7 @@
 
   function contextKey(ctx) {
     if (!ctx) return "none";
+    if (ctx.notAuthorized) return `noauth:${ctx.businessObjectType}:${ctx.displayName}`;
     if (ctx.needsResolve) return `resolve:${ctx.businessObjectType}:${ctx.resolveQuery}`;
     return `${ctx.businessObjectType}:${ctx.businessObjectId}`;
   }

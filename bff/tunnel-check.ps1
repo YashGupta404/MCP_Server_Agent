@@ -12,10 +12,12 @@ Add-Type -AssemblyName System.Net.Http
 $h = New-Object System.Net.Http.HttpClient
 $h.Timeout = [TimeSpan]::FromSeconds(15)
 $url = "https://4kw1kpcm-5200.asse.devtunnels.ms/mcp"
+$apiKey = $env:MCP_API_KEY
+if (-not $apiKey) { throw "MCP_API_KEY not set. Run:  . `"$PSScriptRoot\load-mcp-key.ps1`"  first (loads it from dotnet user-secrets)." }
 try {
   $req = New-Object System.Net.Http.HttpRequestMessage([System.Net.Http.HttpMethod]::Post, $url)
   $req.Headers.TryAddWithoutValidation("Accept", "application/json, text/event-stream") | Out-Null
-  $req.Headers.TryAddWithoutValidation("X-API-Key", "lo1uLULmaPHg5dKLJGvLGLd1j8hF/ZQ6T7lokyuxvlA=") | Out-Null
+  $req.Headers.TryAddWithoutValidation("X-API-Key", $apiKey) | Out-Null
   $req.Content = New-Object System.Net.Http.StringContent('{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"tunnel-probe","version":"0.1"}}}', [System.Text.Encoding]::UTF8, "application/json")
   $sw = [System.Diagnostics.Stopwatch]::StartNew()
   $resp = $h.SendAsync($req).GetAwaiter().GetResult()

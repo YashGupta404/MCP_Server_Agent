@@ -619,19 +619,25 @@ body {
 
 .hec__act {
   flex: 1;
-  padding: 8px 10px;
+  min-height: 36px;
+  padding: 8px 14px;
   font: inherit;
   font-size: 13px;
   font-weight: 600;
   color: var(--accent);
   background: #eef3fd;
   border: 1px solid transparent;
-  border-radius: 8px;
+  border-radius: var(--radius);
   cursor: pointer;
+  transition: background 0.15s ease, box-shadow 0.15s ease;
 }
 
 .hec__act:hover {
   background: #e2ebfb;
+}
+
+.hec__act:active {
+  background: #d6e2f8;
 }
 
 .hec__act--primary {
@@ -641,6 +647,15 @@ body {
 
 .hec__act--primary:hover {
   background: #1a51bd;
+}
+
+.hec__act--primary:active {
+  background: #17489f;
+}
+
+.hec__act:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
 }
 
 /* tabs */
@@ -679,7 +694,7 @@ body {
   padding: 18px 12px;
   margin-bottom: 12px;
   color: var(--muted);
-  background: #f7f8fb;
+  background: var(--bg);
   border: 1.5px dashed var(--line-strong);
   border-radius: 10px;
   cursor: pointer;
@@ -700,17 +715,17 @@ body {
   color: var(--accent);
 }
 
-.hec__sep {
-  height: 1px;
-  margin: 4px 0 12px;
-  background: var(--line);
-}
-
-/* upload section */
+/* upload section — a distinct card, visually segregated from the document list above */
 .hec__upload {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 10px;
+  margin-top: 16px;
+  padding: 14px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  box-shadow: 0 1px 3px rgba(20, 24, 29, 0.08), 0 6px 16px rgba(20, 24, 29, 0.1);
 }
 
 .hec__uploadTitle {
@@ -719,6 +734,99 @@ body {
   color: var(--text);
   text-transform: uppercase;
   letter-spacing: 0.6px;
+}
+
+.hec__uploadMeta {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.hec__uploadMetaTitle {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.hec__metaField {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.hec__metaLabel {
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.hec__queryBar {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px;
+  margin-bottom: 10px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--panel);
+  box-shadow: 0 1px 3px rgba(20, 24, 29, 0.08), 0 6px 16px rgba(20, 24, 29, 0.1);
+}
+
+.hec__queryRow {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.hec__queryRow .hec__select {
+  flex: 1;
+}
+
+.hec__queryRow .hec__act {
+  flex: 0 0 auto;
+  padding: 8px 18px;
+}
+
+.hec__queryInputs {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.hec__queryInputs:empty {
+  display: none;
+}
+
+.hec__queryField {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.hec__queryLabel {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.hec__queryFieldRow {
+  display: flex;
+  gap: 8px;
+  align-items: stretch;
+}
+
+.hec__queryOp {
+  flex: 0 0 130px;
+  max-width: 130px;
+}
+
+.hec__queryFieldRow .manual__input {
+  flex: 1;
+}
+
+.context__status--error {
+  color: #c0392b;
 }
 
 .hec__upload .hec__drop {
@@ -802,9 +910,10 @@ body {
 .manual__input {
   flex: 1;
   min-width: 0;
-  padding: 7px 9px;
+  min-height: 36px;
+  padding: 8px 10px;
   font: inherit;
-  font-size: 12px;
+  font-size: 13px;
   color: var(--text);
   background: var(--bg);
   border: 1px solid var(--line);
@@ -814,6 +923,11 @@ body {
 .manual__input:focus {
   outline: none;
   border-color: var(--accent);
+  box-shadow: 0 0 0 3px rgba(31, 95, 214, 0.12);
+}
+
+.manual__input::placeholder {
+  color: #9aa3af;
 }
 
 /* Workday worker resolver results */
@@ -852,18 +966,79 @@ body {
 }
 
 .hec__select {
+  min-height: 36px;
+  padding: 8px 10px;
+  font: inherit;
+  font-size: 13px;
+  color: var(--text);
   cursor: pointer;
   background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
   appearance: auto;
+}
+
+.hec__select:focus {
+  outline: none;
+  border-color: var(--accent);
 }
 
 /* document rows */
 .doclist {
-  list-style: none;
   margin: 0;
   padding: 0;
-  display: flex;
-  flex-direction: column;
+  overflow-x: auto;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+}
+
+.doclist:empty {
+  display: none;
+}
+
+/* native-style document grid: one column per configured result column */
+.doctable {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12.5px;
+}
+
+.doctable th {
+  text-align: left;
+  font-weight: 600;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  color: var(--muted);
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--line);
+  white-space: nowrap;
+  position: sticky;
+  top: 0;
+  background: var(--panel);
+}
+
+.doctable td {
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--line);
+  white-space: nowrap;
+  max-width: 200px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--text);
+}
+
+.doctable tbody tr:last-child td {
+  border-bottom: none;
+}
+
+.doctable__row {
+  cursor: pointer;
+  transition: background 0.12s ease;
+}
+
+.doctable__row:hover {
+  background: #eef3fd;
 }
 
 .docrow {
@@ -940,18 +1115,20 @@ body {
 .doclist__search {
   width: 100%;
   box-sizing: border-box;
-  margin: 0 0 8px;
-  padding: 7px 10px;
-  font-size: 12px;
-  color: #1b2430;
+  min-height: 36px;
+  margin: 0 0 10px;
+  padding: 8px 12px;
+  font-size: 13px;
+  color: var(--text);
   border: 1px solid var(--line);
-  border-radius: 6px;
+  border-radius: var(--radius);
   background: #fff;
 }
 
 .doclist__search:focus {
   outline: none;
   border-color: var(--accent);
+  box-shadow: 0 0 0 3px rgba(31, 95, 214, 0.12);
 }
 
 .docrow__meta {

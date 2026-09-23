@@ -1,14 +1,12 @@
 param(
-  [string]$DocumentTypeId = "employee-application",
-  [string]$BusinessObjectType = "employee",
-  [string]$BusinessObjectId = "4bc212416f234ba1b4749e4bebe4c2eb"
+  [Parameter(Mandatory=$true)][string]$Tool,
+  [string]$ArgsJson = "{}"
 )
 
 $ErrorActionPreference = "Stop"
 Add-Type -AssemblyName System.Net.Http
 
-$mcp      = "http://localhost:5200"
-$endpoint = "$mcp/mcp"
+$endpoint = "http://localhost:5200/mcp"
 $apiKey = $env:MCP_API_KEY
 if (-not $apiKey) { throw "MCP_API_KEY not set. Run:  . `"$PSScriptRoot\load-mcp-key.ps1`"  first (loads it from dotnet user-secrets)." }
 
@@ -21,7 +19,7 @@ function Send-Rpc([string]$json, [string]$sessionId, [string]$protocol) {
   $req.Headers.TryAddWithoutValidation("X-Api-Key", $apiKey) | Out-Null
   $req.Headers.TryAddWithoutValidation("Accept", "application/json, text/event-stream") | Out-Null
   if ($sessionId) { $req.Headers.TryAddWithoutValidation("Mcp-Session-Id", $sessionId) | Out-Null }
-  if ($protocol)  { $req.Headers.TryAddWithoutValidation("MCP-Protocol-Version", $protocol) | Out-Null }
+  if ($protocol) { $req.Headers.TryAddWithoutValidation("MCP-Protocol-Version", $protocol) | Out-Null }
   $req.Content = New-Object System.Net.Http.StringContent($json, [System.Text.Encoding]::UTF8, "application/json")
   $resp = $client.SendAsync($req).GetAwaiter().GetResult()
   $sid = $null
@@ -29,6 +27,7 @@ function Send-Rpc([string]$json, [string]$sessionId, [string]$protocol) {
   $body = $resp.Content.ReadAsStringAsync().GetAwaiter().GetResult()
   return @{ Body = $body; SessionId = $sid; Status = [int]$resp.StatusCode }
 }
+
 function Parse-Sse([string]$body) {
   $last = $null
   foreach ($line in ($body -split "`n")) {
@@ -39,30 +38,27 @@ function Parse-Sse([string]$body) {
   return $last | ConvertFrom-Json
 }
 
-$initReq = @{ jsonrpc="2.0"; id=1; method="initialize"; params=@{ protocolVersion="2025-06-18"; capabilities=@{}; clientInfo=@{ name="probe"; version="0.1" } } } | ConvertTo-Json -Depth 10 -Compress
+# 1) initialize
+$initReq = @{ jsonrpc="2.0"; id=1; method="initialize"; params=@{ protocolVersion="2025-06-18"; capabilities=@{}; clientInfo=@{ name="admin"; version="0.1" } } } | ConvertTo-Json -Depth 10 -Compress
 $r1 = Send-Rpc $initReq $null $null
 $sid = $r1.SessionId
 $init = Parse-Sse $r1.Body
 $protocol = "2025-06-18"
 if ($init.result.protocolVersion) { $protocol = $init.result.protocolVersion }
 
+# 2) notifications/initialized
 $noteReq = @{ jsonrpc="2.0"; method="notifications/initialized" } | ConvertTo-Json -Compress
 [void](Send-Rpc $noteReq $sid $protocol)
 
-$singleValued = ConvertTo-Json @(@{ name = "businessObjectId"; value = $BusinessObjectId }) -Compress
-if (-not $singleValued.TrimStart().StartsWith("[")) { $singleValued = "[$singleValued]" }
+# 3) tools/call
+$callReq = @{ jsonrpc="2.0"; id=2; method="tools/call"; params=@{ name=$Tool; arguments=($ArgsJson | ConvertFrom-Json) } } | ConvertTo-Json -Depth 20 -Compress
+$r3 = Send-Rpc $callReq $sid $protocol
+$call = Parse-Sse $r3.Body
 
-$arguments = @{
-  documentTypeId = $DocumentTypeId
-  businessObjectType = $BusinessObjectType
-  singleValuedBusinessObjectAttributesJson = $singleValued
-}
-$callReq = @{ jsonrpc="2.0"; id=2; method="tools/call"; params=@{ name="get_capture_default_attributes"; arguments=$arguments } } | ConvertTo-Json -Depth 20 -Compress
-Write-Host "--- get_capture_default_attributes ($DocumentTypeId) ---"
-$r = Send-Rpc $callReq $sid $protocol
-$call = Parse-Sse $r.Body
 if ($call.result.content) {
-  foreach ($c in $call.result.content) { if ($c.type -eq "text") { Write-Output $c.text } }
+  foreach ($c in $call.result.content) {
+    if ($c.type -eq "text") { Write-Output $c.text }
+  }
 } else {
   Write-Output ($call | ConvertTo-Json -Depth 30)
 }

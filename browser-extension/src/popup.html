@@ -85,15 +85,24 @@
       <div class="context__status" id="contextStatus" hidden></div>
 
       <div id="docPane">
-        <input id="docSearch" class="doclist__search" type="search" placeholder="Search by name, type, or metadata…" hidden />
-        <ul class="doclist" id="docList"></ul>
+        <div id="queryBar" class="hec__queryBar" hidden>
+          <div class="hec__queryRow">
+            <select id="querySelect" class="hec__select">
+              <option value="" disabled selected>Select a query…</option>
+            </select>
+            <button id="queryClearBtn" class="hec__act" type="button" hidden>Clear</button>
+            <button id="queryRunBtn" class="hec__act hec__act--primary" type="button">Search</button>
+          </div>
+          <div id="queryInputs" class="hec__queryInputs"></div>
+          <div id="queryStatus" class="context__status" hidden></div>
+        </div>
+        <input id="docSearch" class="doclist__search" type="search" placeholder="Filter results…" hidden />
+        <div class="doclist" id="docList"></div>
       </div>
 
       <div id="metaPane" class="hec__meta" hidden></div>
 
-      <div class="hec__sep" role="separator"></div>
-
-      <section class="hec__upload">
+      <section id="uploadSection" class="hec__upload">
         <div class="hec__uploadTitle">Upload a document to this record</div>
 
         <input id="uploadFileInput" class="file-input" type="file" multiple hidden />
@@ -113,8 +122,9 @@
         </select>
         <input id="uploadRecordId" class="manual__input" type="text" placeholder="record id (from context)" autocomplete="off" />
 
+        <div id="uploadMeta" class="hec__uploadMeta" hidden></div>
+
         <div class="hec__actions">
-          <button id="actAttach" class="hec__act" type="button">Attach</button>
           <button id="uploadBtn" class="hec__act hec__act--primary" type="button">Upload</button>
         </div>
 

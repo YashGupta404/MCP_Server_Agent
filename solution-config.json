@@ -1,0 +1,1810 @@
+{
+  "data": {
+    "configurations": {
+      "operationConfig": {
+        "query": {
+          "pageSize": 10,
+          "maxResults": null
+        },
+        "capture": {
+          "fileSizeLimit": 2000,
+          "fileTypesAllowed": [
+            "bmp",
+            "jpg",
+            "jpeg",
+            "png",
+            "pdf",
+            "tiff",
+            "docx",
+            "pptx",
+            "xlsx",
+            "txt",
+            "json",
+            "mp4",
+            "mp3"
+          ]
+        },
+        "rendition": null,
+        "viewer": {
+          "baseUrl": "https://oifsdev.hyland.com/QuickAccessViewer/viewer/document/{doc_id}"
+        }
+      },
+      "businessObjectConfig": {
+        "contextParams": {
+          "boContext": {
+            "boProp": "Id",
+            "ecmProp": "hfs_sObject_Id",
+            "ecmPropId": "223"
+          },
+          "boUser": {
+            "boProp": "CreatedById",
+            "ecmProp": "hfs_sObject_owner",
+            "ecmPropId": "224"
+          }
+        },
+        "additionalConfig": [
+          {
+            "busObject": "opportunity",
+            "ecmContentTypeName": "prescription",
+            "ecmContentTypeId": "prescription",
+            "ecmContentTypeGroupId": null,
+            "contextParams": [],
+            "ecmMetadataFieldLabels": [
+              {
+                "ecmColumnName": "DOSAGE",
+                "ecmColumnId": "hfs_Dosage",
+                "localeStrings": [
+                  {
+                    "culture": "en_US",
+                    "name": "DOSAGE",
+                    "description": "Default label for hfs_Dosage"
+                  }
+                ]
+              },
+              {
+                "ecmColumnName": "FILEBLOB",
+                "ecmColumnId": "hfs_Fileblob",
+                "localeStrings": [
+                  {
+                    "culture": "en_US",
+                    "name": "FILEBLOB",
+                    "description": "Default label for hfs_Fileblob"
+                  }
+                ]
+              },
+              {
+                "ecmColumnName": "HOSPITAL_CERTIFIED",
+                "ecmColumnId": "hfs_HospitalCertified",
+                "localeStrings": [
+                  {
+                    "culture": "en_US",
+                    "name": "HOSPITAL_CERTIFIED",
+                    "description": "Default label for hfs_HospitalCertified"
+                  }
+                ]
+              },
+              {
+                "ecmColumnName": "HOSPITAL_TURNOVER",
+                "ecmColumnId": "hfs_HospitalTurnover",
+                "localeStrings": [
+                  {
+                    "culture": "en_US",
+                    "name": "HOSPITAL_TURNOVER",
+                    "description": "Default label for hfs_HospitalTurnover"
+                  }
+                ]
+              },
+              {
+                "ecmColumnName": "MEDICATION_NAME",
+                "ecmColumnId": "hfs_MedicationName",
+                "localeStrings": [
+                  {
+                    "culture": "en_US",
+                    "name": "MEDICATION_NAME",
+                    "description": "Default label for hfs_MedicationName"
+                  }
+                ]
+              },
+              {
+                "ecmColumnName": "MULTI_SPECIALITY",
+                "ecmColumnId": "hfs_MultiSpeciality",
+                "localeStrings": [
+                  {
+                    "culture": "en_US",
+                    "name": "MULTI_SPECIALITY",
+                    "description": "Default label for hfs_MultiSpeciality"
+                  }
+                ]
+              },
+              {
+                "ecmColumnName": "NUM_FLOAT_POINT",
+                "ecmColumnId": "hfs_NumFloatPoint",
+                "localeStrings": [
+                  {
+                    "culture": "en_US",
+                    "name": "NUM_FLOAT_POINT",
+                    "description": "Default label for hfs_NumFloatPoint"
+                  }
+                ]
+              },
+              {
+                "ecmColumnName": "PATIENT_NAME",
+                "ecmColumnId": "hfs_PatientName",
+                "localeStrings": [
+                  {
+                    "culture": "en_US",
+                    "name": "PATIENT_NAME",
+                    "description": "Default label for hfs_PatientName"
+                  }
+                ]
+              },
+              {
+                "ecmColumnName": "PHARMACY",
+                "ecmColumnId": "hfs_Pharmacy",
+                "localeStrings": [
+                  {
+                    "culture": "en_US",
+                    "name": "PHARMACY",
+                    "description": "Default label for hfs_Pharmacy"
+                  }
+                ]
+              },
+              {
+                "ecmColumnName": "PHYSICIAN_NAME",
+                "ecmColumnId": "hfs_PhysicianName",
+                "localeStrings": [
+                  {
+                    "culture": "en_US",
+                    "name": "PHYSICIAN_NAME",
+                    "description": "Default label for hfs_PhysicianName"
+                  }
+                ]
+              },
+              {
+                "ecmColumnName": "PRESCRIPTION_DATE",
+                "ecmColumnId": "hfs_PrescriptionDate",
+                "localeStrings": [
+                  {
+                    "culture": "en_US",
+                    "name": "PRESCRIPTION_DATE",
+                    "description": "Default label for hfs_PrescriptionDate"
+                  }
+                ]
+              },
+              {
+                "ecmColumnName": "PRESCRIPTION_DATE_TIME",
+                "ecmColumnId": "hfs_PrescriptionDateTime",
+                "localeStrings": [
+                  {
+                    "culture": "en_US",
+                    "name": "PRESCRIPTION_DATE_TIME",
+                    "description": "Default label for hfs_PrescriptionDateTime"
+                  }
+                ]
+              },
+              {
+                "ecmColumnName": "TEST",
+                "ecmColumnId": "hfs_test",
+                "localeStrings": [
+                  {
+                    "culture": "en_US",
+                    "name": "TEST",
+                    "description": "Default label for hfs_test"
+                  }
+                ]
+              }
+            ],
+            "displayColumns": {
+              "ecmColumnSets": [],
+              "defaultFormFactor": "desktop"
+            },
+            "metadataFieldImportMappings": [
+              {
+                "ecmFieldName": "hfs_PhysicianName",
+                "inputSource": "2",
+                "value": {
+                  "value": "Adhyeta",
+                  "type": "String",
+                  "format": ""
+                }
+              },
+              {
+                "ecmFieldName": "hfs_MedicationName",
+                "inputSource": "2",
+                "value": {
+                  "value": "Homeopathy",
+                  "type": "String",
+                  "format": ""
+                }
+              }
+            ],
+            "defaultListQuery": null
+          },
+          {
+            "busObject": "campaign",
+            "ecmContentTypeName": "dev-test-account",
+            "ecmContentTypeId": "dev-test-account",
+            "ecmContentTypeGroupId": null,
+            "contextParams": [],
+            "ecmMetadataFieldLabels": [
+              {
+                "ecmColumnName": "hfs_Name",
+                "ecmColumnId": "hfs_Name",
+                "localeStrings": [
+                  {
+                    "culture": "en_US",
+                    "name": "hfs_Name",
+                    "description": "Default label for hfs_Name"
+                  }
+                ]
+              }
+            ],
+            "displayColumns": {
+              "ecmColumnSets": [
+                {
+                  "formFactorId": "desktop",
+                  "columns": [
+                    "hfs_Name"
+                  ]
+                }
+              ],
+              "defaultFormFactor": "desktop"
+            },
+            "metadataFieldImportMappings": [
+              {
+                "ecmFieldName": "hfs_Date_Time",
+                "inputSource": "1",
+                "value": {
+                  "value": "EndDate",
+                  "type": "DateTime",
+                  "format": ""
+                }
+              },
+              {
+                "ecmFieldName": "hfs_Integer_Id",
+                "inputSource": "6",
+                "value": {
+                  "value": "",
+                  "type": "Integer",
+                  "format": ""
+                }
+              },
+              {
+                "ecmFieldName": "hfs_Date",
+                "inputSource": "2",
+                "value": {
+                  "value": "2026-07-30T12:30:00.000Z",
+                  "type": "DateTime",
+                  "format": ""
+                }
+              },
+              {
+                "ecmFieldName": "hfs_Boolean",
+                "inputSource": "1",
+                "value": {
+                  "value": "IsActive",
+                  "type": "Boolean",
+                  "format": ""
+                }
+              },
+              {
+                "ecmFieldName": "hfs_Name",
+                "inputSource": "2",
+                "value": {
+                  "value": "Adhyeta Name",
+                  "type": "String",
+                  "format": ""
+                }
+              }
+            ],
+            "defaultListQuery": null
+          },
+          {
+            "busObject": "case",
+            "ecmContentTypeName": "case-content-type",
+            "ecmContentTypeId": "case-content-type",
+            "ecmContentTypeGroupId": null,
+            "contextParams": [],
+            "ecmMetadataFieldLabels": [
+              {
+                "ecmColumnName": "hfs_CaseAmount",
+                "ecmColumnId": "hfs_CaseAmount",
+                "localeStrings": [
+                  {
+                    "culture": "en_US",
+                    "name": "hfs_CaseAmount",
+                    "description": "Default label for hfs_CaseAmount"
+                  }
+                ]
+              },
+              {
+                "ecmColumnName": "hfs_CaseFloat",
+                "ecmColumnId": "hfs_CaseFloat",
+                "localeStrings": [
+                  {
+                    "culture": "en_US",
+                    "name": "hfs_CaseFloat",
+                    "description": "Default label for hfs_CaseFloat"
+                  }
+                ]
+              },
+              {
+                "ecmColumnName": "hfs_CaseLastDate",
+                "ecmColumnId": "hfs_CaseLastDate",
+                "localeStrings": [
+                  {
+                    "culture": "en_US",
+                    "name": "hfs_CaseLastDate",
+                    "description": "Default label for hfs_CaseLastDate"
+                  }
+                ]
+              },
+              {
+                "ecmColumnName": "hfs_CaseReason",
+                "ecmColumnId": "hfs_CaseReason",
+                "localeStrings": [
+                  {
+                    "culture": "en_US",
+                    "name": "hfs_CaseReason",
+                    "description": "Default label for hfs_CaseReason"
+                  }
+                ]
+              },
+              {
+                "ecmColumnName": "hfs_CaseStatus",
+                "ecmColumnId": "hfs_CaseStatus",
+                "localeStrings": [
+                  {
+                    "culture": "en_US",
+                    "name": "hfs_CaseStatus",
+                    "description": "Default label for hfs_CaseStatus"
+                  }
+                ]
+              },
+              {
+                "ecmColumnName": "hfs_DocName",
+                "ecmColumnId": "hfs_DocName",
+                "localeStrings": [
+                  {
+                    "culture": "en_US",
+                    "name": "hfs_DocName",
+                    "description": "Default label for hfs_DocName"
+                  }
+                ]
+              }
+            ],
+            "displayColumns": {
+              "ecmColumnSets": [],
+              "defaultFormFactor": "desktop"
+            },
+            "metadataFieldImportMappings": [
+              {
+                "ecmFieldName": "hfs_CaseDate",
+                "inputSource": "1",
+                "value": {
+                  "value": "CreatedDate",
+                  "type": "DateTime",
+                  "format": ""
+                }
+              },
+              {
+                "ecmFieldName": "hfs_DocName",
+                "inputSource": "4",
+                "value": {
+                  "value": "File Name",
+                  "type": "String",
+                  "format": ""
+                }
+              },
+              {
+                "ecmFieldName": "hfs_CaseStatus",
+                "inputSource": "5",
+                "value": {
+                  "value": "File Type",
+                  "type": "String",
+                  "format": ""
+                }
+              },
+              {
+                "ecmFieldName": "hfs_CaseReason",
+                "inputSource": "3",
+                "value": {
+                  "value": "LOB UserName",
+                  "type": "String",
+                  "format": ""
+                }
+              },
+              {
+                "ecmFieldName": "hfs_CaseLastDate",
+                "inputSource": "2",
+                "value": {
+                  "value": "2026-07-31T12:45:00.000Z",
+                  "type": "DateTime",
+                  "format": ""
+                }
+              },
+              {
+                "ecmFieldName": "hfs_CaseAmount",
+                "inputSource": "6",
+                "value": {
+                  "value": "",
+                  "type": "Integer",
+                  "format": ""
+                }
+              }
+            ],
+            "defaultListQuery": null
+          },
+          {
+            "busObject": "contact",
+            "ecmContentTypeName": "bills-content-type",
+            "ecmContentTypeId": "bills-content-type",
+            "ecmContentTypeGroupId": null,
+            "contextParams": [],
+            "ecmMetadataFieldLabels": [
+              {
+                "ecmColumnName": "hfs_BillingSerialID",
+                "ecmColumnId": "hfs_BillingSerialID",
+                "localeStrings": [
+                  {
+                    "culture": "en_US",
+                    "name": "hfs_BillingSerialID",
+                    "description": "Default label for hfs_BillingSerialID"
+                  }
+                ]
+              },
+              {
+                "ecmColumnName": "hfs_bill-date",
+                "ecmColumnId": "hfs_bill-date",
+                "localeStrings": [
+                  {
+                    "culture": "en_US",
+                    "name": "hfs_bill-date",
+                    "description": "Default label for hfs_bill-date"
+                  }
+                ]
+              },
+              {
+                "ecmColumnName": "hfs_billing-doc-name",
+                "ecmColumnId": "hfs_billing-doc-name",
+                "localeStrings": [
+                  {
+                    "culture": "en_US",
+                    "name": "hfs_billing-doc-name",
+                    "description": "Default label for hfs_billing-doc-name"
+                  }
+                ]
+              },
+              {
+                "ecmColumnName": "hfs_billing-month",
+                "ecmColumnId": "hfs_billing-month",
+                "localeStrings": [
+                  {
+                    "culture": "en_US",
+                    "name": "hfs_billing-month",
+                    "description": "Default label for hfs_billing-month"
+                  }
+                ]
+              }
+            ],
+            "displayColumns": {
+              "ecmColumnSets": [],
+              "defaultFormFactor": "desktop"
+            },
+            "metadataFieldImportMappings": [
+              {
+                "ecmFieldName": "hfs_BillingSerialID",
+                "inputSource": "2",
+                "value": {
+                  "value": "01233",
+                  "type": "String",
+                  "format": ""
+                }
+              },
+              {
+                "ecmFieldName": "hfs_bill-date",
+                "inputSource": "6",
+                "value": {
+                  "value": "",
+                  "type": "DateTime",
+                  "format": ""
+                }
+              },
+              {
+                "ecmFieldName": "hfs_billing-month",
+                "inputSource": "6",
+                "value": {
+                  "value": "",
+                  "type": "String",
+                  "format": ""
+                }
+              },
+              {
+                "ecmFieldName": "hfs_billing-doc-name",
+                "inputSource": "4",
+                "value": {
+                  "value": "File Name",
+                  "type": "String",
+                  "format": ""
+                }
+              }
+            ],
+            "defaultListQuery": null
+          },
+          {
+            "busObject": "yash_test",
+            "ecmContentTypeName": "dev-test-account",
+            "ecmContentTypeId": "dev-test-account",
+            "ecmContentTypeGroupId": null,
+            "contextParams": [],
+            "ecmMetadataFieldLabels": [
+              {
+                "ecmColumnName": "hfs_Name",
+                "ecmColumnId": "hfs_Name",
+                "localeStrings": [
+                  {
+                    "culture": "en_US",
+                    "name": "hfs_Name",
+                    "description": "Default label for hfs_Name"
+                  }
+                ]
+              }
+            ],
+            "displayColumns": {
+              "ecmColumnSets": [
+                {
+                  "formFactorId": "desktop",
+                  "columns": [
+                    "hfs_Name"
+                  ]
+                }
+              ],
+              "defaultFormFactor": "desktop"
+            },
+            "metadataFieldImportMappings": [
+              {
+                "ecmFieldName": "hfs_Name",
+                "inputSource": "6",
+                "value": {
+                  "value": "",
+                  "type": "String",
+                  "format": ""
+                }
+              }
+            ],
+            "defaultListQuery": null
+          },
+          {
+            "busObject": "contact",
+            "ecmContentTypeName": "dev-test-account",
+            "ecmContentTypeId": "dev-test-account",
+            "ecmContentTypeGroupId": null,
+            "contextParams": [],
+            "ecmMetadataFieldLabels": [
+              {
+                "ecmColumnName": "hfs_Boolean",
+                "ecmColumnId": "hfs_Boolean",
+                "localeStrings": [
+                  {
+                    "culture": "en_US",
+                    "name": "hfs_Boolean",
+                    "description": "Default label for hfs_Boolean"
+                  }
+                ]
+              },
+              {
+                "ecmColumnName": "hfs_Date",
+                "ecmColumnId": "hfs_Date",
+                "localeStrings": [
+                  {
+                    "culture": "en_US",
+                    "name": "hfs_Date",
+                    "description": "Default label for hfs_Date"
+                  }
+                ]
+              },
+              {
+                "ecmColumnName": "hfs_Date_Time",
+                "ecmColumnId": "hfs_Date_Time",
+                "localeStrings": [
+                  {
+                    "culture": "en_US",
+                    "name": "hfs_Date_Time",
+                    "description": "Default label for hfs_Date_Time"
+                  }
+                ]
+              },
+              {
+                "ecmColumnName": "hfs_Floating_Point",
+                "ecmColumnId": "hfs_Floating_Point",
+                "localeStrings": [
+                  {
+                    "culture": "en_US",
+                    "name": "hfs_Floating_Point",
+                    "description": "Default label for hfs_Floating_Point"
+                  }
+                ]
+              },
+              {
+                "ecmColumnName": "hfs_Integer_Id",
+                "ecmColumnId": "hfs_Integer_Id",
+                "localeStrings": [
+                  {
+                    "culture": "en_US",
+                    "name": "hfs_Integer_Id",
+                    "description": "Default label for hfs_Integer_Id"
+                  }
+                ]
+              },
+              {
+                "ecmColumnName": "hfs_Name",
+                "ecmColumnId": "hfs_Name",
+                "localeStrings": [
+                  {
+                    "culture": "en_US",
+                    "name": "hfs_Name",
+                    "description": "Default label for hfs_Name"
+                  }
+                ]
+              }
+            ],
+            "displayColumns": {
+              "ecmColumnSets": [],
+              "defaultFormFactor": "desktop"
+            },
+            "metadataFieldImportMappings": [
+              {
+                "ecmFieldName": "hfs_Name",
+                "inputSource": "2",
+                "value": {
+                  "value": "Adhyeta",
+                  "type": "String",
+                  "format": ""
+                }
+              },
+              {
+                "ecmFieldName": "hfs_Date_Time",
+                "inputSource": "2",
+                "value": {
+                  "value": "2026-08-25T13:20:00.000Z",
+                  "type": "DateTime",
+                  "format": ""
+                }
+              },
+              {
+                "ecmFieldName": "hfs_Date",
+                "inputSource": "6",
+                "value": {
+                  "value": "",
+                  "type": "DateTime",
+                  "format": ""
+                }
+              }
+            ],
+            "defaultListQuery": null
+          },
+          {
+            "busObject": "account",
+            "ecmContentTypeName": "COM - Application",
+            "ecmContentTypeId": "206",
+            "ecmContentTypeGroupId": "117",
+            "contextParams": [],
+            "ecmMetadataFieldLabels": [
+              {
+                "ecmColumnName": "Loan Number",
+                "ecmColumnId": "230",
+                "localeStrings": [
+                  {
+                    "culture": "en_US",
+                    "name": "Loan Number",
+                    "description": "Default label for 230"
+                  }
+                ]
+              },
+              {
+                "ecmColumnName": "Entity Name",
+                "ecmColumnId": "232",
+                "localeStrings": [
+                  {
+                    "culture": "en_US",
+                    "name": "Entity Name",
+                    "description": "Default label for 232"
+                  }
+                ]
+              }
+            ],
+            "displayColumns": {
+              "ecmColumnSets": [],
+              "defaultFormFactor": "desktop"
+            },
+            "metadataFieldImportMappings": [
+              {
+                "ecmFieldName": "230",
+                "inputSource": "6",
+                "value": {
+                  "value": "",
+                  "type": "String",
+                  "format": ""
+                }
+              },
+              {
+                "ecmFieldName": "232",
+                "inputSource": "6",
+                "value": {
+                  "value": "Name",
+                  "type": "String",
+                  "format": ""
+                }
+              },
+              {
+                "ecmFieldName": "223",
+                "inputSource": "1",
+                "value": {
+                  "value": "Id",
+                  "type": "String",
+                  "format": ""
+                }
+              }
+            ],
+            "defaultListQuery": null
+          },
+          {
+            "busObject": "account",
+            "ecmContentTypeName": "Invoices",
+            "ecmContentTypeId": "205",
+            "ecmContentTypeGroupId": "116",
+            "contextParams": [],
+            "ecmMetadataFieldLabels": [
+              {
+                "ecmColumnName": "Vendor Name",
+                "ecmColumnId": "228",
+                "localeStrings": [
+                  {
+                    "culture": "en_US",
+                    "name": "Vendor Name",
+                    "description": "Default label for 228"
+                  }
+                ]
+              },
+              {
+                "ecmColumnName": "Invoice #",
+                "ecmColumnId": "229",
+                "localeStrings": [
+                  {
+                    "culture": "en_US",
+                    "name": "Invoice #",
+                    "description": "Default label for 229"
+                  }
+                ]
+              },
+              {
+                "ecmColumnName": "Invoice Total",
+                "ecmColumnId": "227",
+                "localeStrings": [
+                  {
+                    "culture": "en_US",
+                    "name": "Invoice Total",
+                    "description": "Default label for 227"
+                  }
+                ]
+              },
+              {
+                "ecmColumnName": "Invoice Date",
+                "ecmColumnId": "226",
+                "localeStrings": [
+                  {
+                    "culture": "en_US",
+                    "name": "Invoice Date",
+                    "description": "Default label for 226"
+                  }
+                ]
+              },
+              {
+                "ecmColumnName": "currency_type",
+                "ecmColumnId": "234",
+                "localeStrings": [
+                  {
+                    "culture": "en_US",
+                    "name": "currency_type",
+                    "description": "Default label for 234"
+                  }
+                ]
+              }
+            ],
+            "displayColumns": {
+              "ecmColumnSets": [
+                {
+                  "formFactorId": "desktop",
+                  "columns": [
+                    "228",
+                    "229",
+                    "227",
+                    "226",
+                    "DocumentTypeName",
+                    "DocumentName",
+                    "223",
+                    "19"
+                  ]
+                }
+              ],
+              "defaultFormFactor": "desktop"
+            },
+            "metadataFieldImportMappings": [
+              {
+                "ecmFieldName": "234",
+                "inputSource": "6",
+                "value": {
+                  "value": "",
+                  "type": "Currency",
+                  "format": ""
+                }
+              },
+              {
+                "ecmFieldName": "226",
+                "inputSource": "2",
+                "value": {
+                  "value": "08/20/2026",
+                  "type": "String",
+                  "format": ""
+                }
+              },
+              {
+                "ecmFieldName": "227",
+                "inputSource": "6",
+                "value": {
+                  "value": "",
+                  "type": "String",
+                  "format": ""
+                }
+              },
+              {
+                "ecmFieldName": "229",
+                "inputSource": "6",
+                "value": {
+                  "value": "",
+                  "type": "String",
+                  "format": ""
+                }
+              },
+              {
+                "ecmFieldName": "228",
+                "inputSource": "1",
+                "value": {
+                  "value": "Name",
+                  "type": "String",
+                  "format": ""
+                }
+              }
+            ],
+            "defaultListQuery": {
+              "name": "Invoices",
+              "id": "109",
+              "type": "PreConfigured",
+              "default": false
+            }
+          },
+          {
+            "busObject": "opportunity",
+            "ecmContentTypeName": "COM - Application",
+            "ecmContentTypeId": "206",
+            "ecmContentTypeGroupId": "117",
+            "contextParams": [],
+            "ecmMetadataFieldLabels": [
+              {
+                "ecmColumnName": "Loan Number",
+                "ecmColumnId": "230",
+                "localeStrings": [
+                  {
+                    "culture": "en_US",
+                    "name": "Loan Number",
+                    "description": "Default label for 230"
+                  }
+                ]
+              },
+              {
+                "ecmColumnName": "Entity Name",
+                "ecmColumnId": "232",
+                "localeStrings": [
+                  {
+                    "culture": "en_US",
+                    "name": "Entity Name",
+                    "description": "Default label for 232"
+                  }
+                ]
+              }
+            ],
+            "displayColumns": {
+              "ecmColumnSets": [],
+              "defaultFormFactor": "desktop"
+            },
+            "metadataFieldImportMappings": [
+              {
+                "ecmFieldName": "230",
+                "inputSource": "6",
+                "value": {
+                  "value": "",
+                  "type": "String",
+                  "format": ""
+                }
+              },
+              {
+                "ecmFieldName": "232",
+                "inputSource": "6",
+                "value": {
+                  "value": "Name",
+                  "type": "String",
+                  "format": ""
+                }
+              },
+              {
+                "ecmFieldName": "223",
+                "inputSource": "1",
+                "value": {
+                  "value": "Id",
+                  "type": "String",
+                  "format": ""
+                }
+              }
+            ],
+            "defaultListQuery": null
+          },
+          {
+            "busObject": "opportunity",
+            "ecmContentTypeName": "Invoices",
+            "ecmContentTypeId": "205",
+            "ecmContentTypeGroupId": "116",
+            "contextParams": [],
+            "ecmMetadataFieldLabels": [
+              {
+                "ecmColumnName": "Vendor Name",
+                "ecmColumnId": "228",
+                "localeStrings": [
+                  {
+                    "culture": "en_US",
+                    "name": "Vendor Name",
+                    "description": "Default label for 228"
+                  }
+                ]
+              },
+              {
+                "ecmColumnName": "Invoice #",
+                "ecmColumnId": "229",
+                "localeStrings": [
+                  {
+                    "culture": "en_US",
+                    "name": "Invoice #",
+                    "description": "Default label for 229"
+                  }
+                ]
+              },
+              {
+                "ecmColumnName": "Invoice Total",
+                "ecmColumnId": "227",
+                "localeStrings": [
+                  {
+                    "culture": "en_US",
+                    "name": "Invoice Total",
+                    "description": "Default label for 227"
+                  }
+                ]
+              },
+              {
+                "ecmColumnName": "Invoice Date",
+                "ecmColumnId": "226",
+                "localeStrings": [
+                  {
+                    "culture": "en_US",
+                    "name": "Invoice Date",
+                    "description": "Default label for 226"
+                  }
+                ]
+              },
+              {
+                "ecmColumnName": "currency_type",
+                "ecmColumnId": "234",
+                "localeStrings": [
+                  {
+                    "culture": "en_US",
+                    "name": "currency_type",
+                    "description": "Default label for 234"
+                  }
+                ]
+              }
+            ],
+            "displayColumns": {
+              "ecmColumnSets": [],
+              "defaultFormFactor": "desktop"
+            },
+            "metadataFieldImportMappings": [
+              {
+                "ecmFieldName": "234",
+                "inputSource": "6",
+                "value": {
+                  "value": "",
+                  "type": "Currency",
+                  "format": ""
+                }
+              },
+              {
+                "ecmFieldName": "226",
+                "inputSource": "2",
+                "value": {
+                  "value": "08/20/2026",
+                  "type": "String",
+                  "format": ""
+                }
+              },
+              {
+                "ecmFieldName": "227",
+                "inputSource": "6",
+                "value": {
+                  "value": "",
+                  "type": "String",
+                  "format": ""
+                }
+              },
+              {
+                "ecmFieldName": "229",
+                "inputSource": "6",
+                "value": {
+                  "value": "",
+                  "type": "String",
+                  "format": ""
+                }
+              },
+              {
+                "ecmFieldName": "228",
+                "inputSource": "1",
+                "value": {
+                  "value": "Name",
+                  "type": "String",
+                  "format": ""
+                }
+              }
+            ],
+            "defaultListQuery": null
+          },
+          {
+            "busObject": "campaign",
+            "ecmContentTypeName": "COM - Application",
+            "ecmContentTypeId": "206",
+            "ecmContentTypeGroupId": "117",
+            "contextParams": [],
+            "ecmMetadataFieldLabels": [
+              {
+                "ecmColumnName": "Loan Number",
+                "ecmColumnId": "230",
+                "localeStrings": [
+                  {
+                    "culture": "en_US",
+                    "name": "Loan Number",
+                    "description": "Default label for 230"
+                  }
+                ]
+              },
+              {
+                "ecmColumnName": "Entity Name",
+                "ecmColumnId": "232",
+                "localeStrings": [
+                  {
+                    "culture": "en_US",
+                    "name": "Entity Name",
+                    "description": "Default label for 232"
+                  }
+                ]
+              }
+            ],
+            "displayColumns": {
+              "ecmColumnSets": [],
+              "defaultFormFactor": "desktop"
+            },
+            "metadataFieldImportMappings": [
+              {
+                "ecmFieldName": "230",
+                "inputSource": "6",
+                "value": {
+                  "value": "",
+                  "type": "String",
+                  "format": ""
+                }
+              },
+              {
+                "ecmFieldName": "232",
+                "inputSource": "6",
+                "value": {
+                  "value": "Name",
+                  "type": "String",
+                  "format": ""
+                }
+              },
+              {
+                "ecmFieldName": "223",
+                "inputSource": "1",
+                "value": {
+                  "value": "Id",
+                  "type": "String",
+                  "format": ""
+                }
+              }
+            ],
+            "defaultListQuery": null
+          },
+          {
+            "busObject": "campaign",
+            "ecmContentTypeName": "Invoices",
+            "ecmContentTypeId": "205",
+            "ecmContentTypeGroupId": "116",
+            "contextParams": [],
+            "ecmMetadataFieldLabels": [
+              {
+                "ecmColumnName": "Vendor Name",
+                "ecmColumnId": "228",
+                "localeStrings": [
+                  {
+                    "culture": "en_US",
+                    "name": "Vendor Name",
+                    "description": "Default label for 228"
+                  }
+                ]
+              },
+              {
+                "ecmColumnName": "Invoice #",
+                "ecmColumnId": "229",
+                "localeStrings": [
+                  {
+                    "culture": "en_US",
+                    "name": "Invoice #",
+                    "description": "Default label for 229"
+                  }
+                ]
+              },
+              {
+                "ecmColumnName": "Invoice Total",
+                "ecmColumnId": "227",
+                "localeStrings": [
+                  {
+                    "culture": "en_US",
+                    "name": "Invoice Total",
+                    "description": "Default label for 227"
+                  }
+                ]
+              },
+              {
+                "ecmColumnName": "Invoice Date",
+                "ecmColumnId": "226",
+                "localeStrings": [
+                  {
+                    "culture": "en_US",
+                    "name": "Invoice Date",
+                    "description": "Default label for 226"
+                  }
+                ]
+              },
+              {
+                "ecmColumnName": "currency_type",
+                "ecmColumnId": "234",
+                "localeStrings": [
+                  {
+                    "culture": "en_US",
+                    "name": "currency_type",
+                    "description": "Default label for 234"
+                  }
+                ]
+              }
+            ],
+            "displayColumns": {
+              "ecmColumnSets": [],
+              "defaultFormFactor": "desktop"
+            },
+            "metadataFieldImportMappings": [
+              {
+                "ecmFieldName": "234",
+                "inputSource": "6",
+                "value": {
+                  "value": "",
+                  "type": "Currency",
+                  "format": ""
+                }
+              },
+              {
+                "ecmFieldName": "226",
+                "inputSource": "2",
+                "value": {
+                  "value": "08/20/2026",
+                  "type": "String",
+                  "format": ""
+                }
+              },
+              {
+                "ecmFieldName": "227",
+                "inputSource": "6",
+                "value": {
+                  "value": "",
+                  "type": "String",
+                  "format": ""
+                }
+              },
+              {
+                "ecmFieldName": "229",
+                "inputSource": "6",
+                "value": {
+                  "value": "",
+                  "type": "String",
+                  "format": ""
+                }
+              },
+              {
+                "ecmFieldName": "228",
+                "inputSource": "1",
+                "value": {
+                  "value": "Name",
+                  "type": "String",
+                  "format": ""
+                }
+              }
+            ],
+            "defaultListQuery": null
+          }
+        ],
+        "queryConfig": [
+          {
+            "busObject": "contact",
+            "queries": [
+              {
+                "name": "bills-content-type",
+                "id": "bills-content-type",
+                "label": null,
+                "description": null,
+                "type": "ContentType",
+                "default": true,
+                "filterClauses": [
+                  {
+                    "ecmFieldName": "hfs_billing-month",
+                    "ecmFieldId": "hfs_billing-month",
+                    "inputSource": "2",
+                    "value": {
+                      "value": "June",
+                      "type": "String",
+                      "format": ""
+                    },
+                    "editable": false,
+                    "operator": "EqualsCaseSensitive"
+                  }
+                ],
+                "displayColumns": {
+                  "ecmColumnSets": [
+                    {
+                      "formFactorId": "desktop",
+                      "columns": [
+                        "hfs_billing-doc-name",
+                        "hfs_billing-month",
+                        "hfs_sObject_owner",
+                        "hfs_sObject_Id",
+                        "hfs_bill-date"
+                      ]
+                    }
+                  ],
+                  "defaultFormFactor": "desktop"
+                },
+                "displayColumnConfig": [
+                  {
+                    "ecmColumnName": "hfs_billing-doc-name",
+                    "ecmColumnId": "hfs_billing-doc-name",
+                    "type": "String",
+                    "localeStrings": null
+                  },
+                  {
+                    "ecmColumnName": "hfs_billing-month",
+                    "ecmColumnId": "hfs_billing-month",
+                    "type": "String",
+                    "localeStrings": null
+                  },
+                  {
+                    "ecmColumnName": "hfs_sObject_owner",
+                    "ecmColumnId": "hfs_sObject_owner",
+                    "type": "String",
+                    "localeStrings": null
+                  },
+                  {
+                    "ecmColumnName": "hfs_sObject_Id",
+                    "ecmColumnId": "hfs_sObject_Id",
+                    "type": "String",
+                    "localeStrings": null
+                  },
+                  {
+                    "ecmColumnName": "hfs_bill-date",
+                    "ecmColumnId": "hfs_bill-date",
+                    "type": "DateTime",
+                    "localeStrings": null
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "busObject": "account",
+            "queries": [
+              {
+                "name": "Invoices",
+                "id": "109",
+                "label": null,
+                "description": null,
+                "type": "PreConfigured",
+                "default": false,
+                "filterClauses": [
+                  {
+                    "ecmFieldName": "Vendor Name",
+                    "ecmFieldId": "228",
+                    "inputSource": "3",
+                    "value": {
+                      "value": "",
+                      "type": "String",
+                      "format": ""
+                    },
+                    "editable": true,
+                    "operator": "EqualsCaseInsensitive"
+                  }
+                ],
+                "displayColumns": {
+                  "ecmColumnSets": [
+                    {
+                      "formFactorId": "desktop",
+                      "columns": [
+                        "229",
+                        "DocumentTypeName",
+                        "226",
+                        "227",
+                        "228"
+                      ]
+                    }
+                  ],
+                  "defaultFormFactor": "desktop"
+                },
+                "displayColumnConfig": [
+                  {
+                    "ecmColumnName": "Document",
+                    "ecmColumnId": "229",
+                    "type": "String",
+                    "localeStrings": null
+                  },
+                  {
+                    "ecmColumnName": "Document Type",
+                    "ecmColumnId": "DocumentTypeName",
+                    "type": "String",
+                    "localeStrings": null
+                  },
+                  {
+                    "ecmColumnName": "Invoice Date",
+                    "ecmColumnId": "226",
+                    "type": "String",
+                    "localeStrings": null
+                  },
+                  {
+                    "ecmColumnName": "Invoice Total",
+                    "ecmColumnId": "227",
+                    "type": "String",
+                    "localeStrings": null
+                  },
+                  {
+                    "ecmColumnName": "Vendor Name",
+                    "ecmColumnId": "228",
+                    "type": "String",
+                    "localeStrings": null
+                  }
+                ]
+              },
+              {
+                "name": "Commercial Lending Search",
+                "id": "110",
+                "label": null,
+                "description": null,
+                "type": "PreConfigured",
+                "default": true,
+                "filterClauses": [
+                  {
+                    "ecmFieldName": "Entity Name",
+                    "ecmFieldId": "232",
+                    "inputSource": "1",
+                    "value": {
+                      "value": "Name",
+                      "type": "String",
+                      "format": ""
+                    },
+                    "editable": false,
+                    "operator": "EqualsCaseInsensitive"
+                  }
+                ],
+                "displayColumns": {
+                  "ecmColumnSets": [
+                    {
+                      "formFactorId": "desktop",
+                      "columns": [
+                        "DocumentTypeName",
+                        "232",
+                        "230"
+                      ]
+                    }
+                  ],
+                  "defaultFormFactor": "desktop"
+                },
+                "displayColumnConfig": [
+                  {
+                    "ecmColumnName": "Document Type",
+                    "ecmColumnId": "DocumentTypeName",
+                    "type": "String",
+                    "localeStrings": null
+                  },
+                  {
+                    "ecmColumnName": "Entity Name",
+                    "ecmColumnId": "232",
+                    "type": "String",
+                    "localeStrings": null
+                  },
+                  {
+                    "ecmColumnName": "Loan Number",
+                    "ecmColumnId": "230",
+                    "type": "String",
+                    "localeStrings": null
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "busObject": "opportunity",
+            "queries": [
+              {
+                "name": "Invoices",
+                "id": "109",
+                "label": null,
+                "description": null,
+                "type": "PreConfigured",
+                "default": false,
+                "filterClauses": [
+                  {
+                    "ecmFieldName": "Vendor Name",
+                    "ecmFieldId": "228",
+                    "inputSource": "3",
+                    "value": {
+                      "value": "",
+                      "type": "String",
+                      "format": ""
+                    },
+                    "editable": true,
+                    "operator": "EqualsCaseInsensitive"
+                  }
+                ],
+                "displayColumns": {
+                  "ecmColumnSets": [
+                    {
+                      "formFactorId": "desktop",
+                      "columns": [
+                        "229",
+                        "DocumentTypeName",
+                        "226",
+                        "227",
+                        "228"
+                      ]
+                    }
+                  ],
+                  "defaultFormFactor": "desktop"
+                },
+                "displayColumnConfig": [
+                  {
+                    "ecmColumnName": "Document",
+                    "ecmColumnId": "229",
+                    "type": "String",
+                    "localeStrings": null
+                  },
+                  {
+                    "ecmColumnName": "Document Type",
+                    "ecmColumnId": "DocumentTypeName",
+                    "type": "String",
+                    "localeStrings": null
+                  },
+                  {
+                    "ecmColumnName": "Invoice Date",
+                    "ecmColumnId": "226",
+                    "type": "String",
+                    "localeStrings": null
+                  },
+                  {
+                    "ecmColumnName": "Invoice Total",
+                    "ecmColumnId": "227",
+                    "type": "String",
+                    "localeStrings": null
+                  },
+                  {
+                    "ecmColumnName": "Vendor Name",
+                    "ecmColumnId": "228",
+                    "type": "String",
+                    "localeStrings": null
+                  }
+                ]
+              },
+              {
+                "name": "Commercial Lending Search",
+                "id": "110",
+                "label": null,
+                "description": null,
+                "type": "PreConfigured",
+                "default": true,
+                "filterClauses": [
+                  {
+                    "ecmFieldName": "Entity Name",
+                    "ecmFieldId": "232",
+                    "inputSource": "1",
+                    "value": {
+                      "value": "Name",
+                      "type": "String",
+                      "format": ""
+                    },
+                    "editable": false,
+                    "operator": "EqualsCaseInsensitive"
+                  }
+                ],
+                "displayColumns": {
+                  "ecmColumnSets": [
+                    {
+                      "formFactorId": "desktop",
+                      "columns": [
+                        "DocumentTypeName",
+                        "232",
+                        "230"
+                      ]
+                    }
+                  ],
+                  "defaultFormFactor": "desktop"
+                },
+                "displayColumnConfig": [
+                  {
+                    "ecmColumnName": "Document Type",
+                    "ecmColumnId": "DocumentTypeName",
+                    "type": "String",
+                    "localeStrings": null
+                  },
+                  {
+                    "ecmColumnName": "Entity Name",
+                    "ecmColumnId": "232",
+                    "type": "String",
+                    "localeStrings": null
+                  },
+                  {
+                    "ecmColumnName": "Loan Number",
+                    "ecmColumnId": "230",
+                    "type": "String",
+                    "localeStrings": null
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "busObject": "campaign",
+            "queries": [
+              {
+                "name": "Invoices",
+                "id": "109",
+                "label": null,
+                "description": null,
+                "type": "PreConfigured",
+                "default": false,
+                "filterClauses": [
+                  {
+                    "ecmFieldName": "Vendor Name",
+                    "ecmFieldId": "228",
+                    "inputSource": "3",
+                    "value": {
+                      "value": "",
+                      "type": "String",
+                      "format": ""
+                    },
+                    "editable": true,
+                    "operator": "EqualsCaseInsensitive"
+                  }
+                ],
+                "displayColumns": {
+                  "ecmColumnSets": [
+                    {
+                      "formFactorId": "desktop",
+                      "columns": [
+                        "229",
+                        "DocumentTypeName",
+                        "226",
+                        "227",
+                        "228"
+                      ]
+                    }
+                  ],
+                  "defaultFormFactor": "desktop"
+                },
+                "displayColumnConfig": [
+                  {
+                    "ecmColumnName": "Document",
+                    "ecmColumnId": "229",
+                    "type": "String",
+                    "localeStrings": null
+                  },
+                  {
+                    "ecmColumnName": "Document Type",
+                    "ecmColumnId": "DocumentTypeName",
+                    "type": "String",
+                    "localeStrings": null
+                  },
+                  {
+                    "ecmColumnName": "Invoice Date",
+                    "ecmColumnId": "226",
+                    "type": "String",
+                    "localeStrings": null
+                  },
+                  {
+                    "ecmColumnName": "Invoice Total",
+                    "ecmColumnId": "227",
+                    "type": "String",
+                    "localeStrings": null
+                  },
+                  {
+                    "ecmColumnName": "Vendor Name",
+                    "ecmColumnId": "228",
+                    "type": "String",
+                    "localeStrings": null
+                  }
+                ]
+              },
+              {
+                "name": "Commercial Lending Search",
+                "id": "110",
+                "label": null,
+                "description": null,
+                "type": "PreConfigured",
+                "default": true,
+                "filterClauses": [
+                  {
+                    "ecmFieldName": "Entity Name",
+                    "ecmFieldId": "232",
+                    "inputSource": "1",
+                    "value": {
+                      "value": "Name",
+                      "type": "String",
+                      "format": ""
+                    },
+                    "editable": false,
+                    "operator": "EqualsCaseInsensitive"
+                  }
+                ],
+                "displayColumns": {
+                  "ecmColumnSets": [
+                    {
+                      "formFactorId": "desktop",
+                      "columns": [
+                        "DocumentTypeName",
+                        "232",
+                        "230"
+                      ]
+                    }
+                  ],
+                  "defaultFormFactor": "desktop"
+                },
+                "displayColumnConfig": [
+                  {
+                    "ecmColumnName": "Document Type",
+                    "ecmColumnId": "DocumentTypeName",
+                    "type": "String",
+                    "localeStrings": null
+                  },
+                  {
+                    "ecmColumnName": "Entity Name",
+                    "ecmColumnId": "232",
+                    "type": "String",
+                    "localeStrings": null
+                  },
+                  {
+                    "ecmColumnName": "Loan Number",
+                    "ecmColumnId": "230",
+                    "type": "String",
+                    "localeStrings": null
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "busObject": "case",
+            "queries": [
+              {
+                "name": "case-content-type",
+                "id": "case-content-type",
+                "label": null,
+                "description": null,
+                "type": "ContentType",
+                "default": true,
+                "filterClauses": [
+                  {
+                    "ecmFieldName": "hfs_CaseLastDate",
+                    "ecmFieldId": "hfs_CaseLastDate",
+                    "inputSource": "2",
+                    "value": {
+                      "value": "2026-07-31T12:45:00.000Z",
+                      "type": "DateTime",
+                      "format": ""
+                    },
+                    "editable": false,
+                    "operator": "Equals"
+                  }
+                ],
+                "displayColumns": {
+                  "ecmColumnSets": [
+                    {
+                      "formFactorId": "desktop",
+                      "columns": [
+                        "hfs_CaseAmount",
+                        "hfs_sObject_Id",
+                        "hfs_sObject_owner",
+                        "hfs_CaseLastDate",
+                        "hfs_DocName"
+                      ]
+                    }
+                  ],
+                  "defaultFormFactor": "desktop"
+                },
+                "displayColumnConfig": [
+                  {
+                    "ecmColumnName": "hfs_CaseAmount",
+                    "ecmColumnId": "hfs_CaseAmount",
+                    "type": "Integer",
+                    "localeStrings": null
+                  },
+                  {
+                    "ecmColumnName": "hfs_sObject_Id",
+                    "ecmColumnId": "hfs_sObject_Id",
+                    "type": "String",
+                    "localeStrings": null
+                  },
+                  {
+                    "ecmColumnName": "hfs_sObject_owner",
+                    "ecmColumnId": "hfs_sObject_owner",
+                    "type": "String",
+                    "localeStrings": null
+                  },
+                  {
+                    "ecmColumnName": "hfs_CaseLastDate",
+                    "ecmColumnId": "hfs_CaseLastDate",
+                    "type": "DateTime",
+                    "localeStrings": null
+                  },
+                  {
+                    "ecmColumnName": "hfs_DocName",
+                    "ecmColumnId": "hfs_DocName",
+                    "type": "String",
+                    "localeStrings": null
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      "endUserGroupConfig": [
+        {
+          "id": "",
+          "name": "Salesforce Solution Administrators",
+          "role": "adminUser"
+        },
+        {
+          "id": "",
+          "name": "Salesforce Content Users",
+          "role": "contentUser"
+        }
+      ]
+    },
+    "configVersion": "1"
+  },
+  "total": 1,
+  "error": null,
+  "resolvedContext": {
+    "systemFriendlyName": "OnBase9714_Integrations_Agent",
+    "systemConfigId": "0c5afb8b-3025-48ff-a380-4531bce1b22e",
+    "systemType": "OnBase",
+    "lobName": "hfs"
+  }
+}

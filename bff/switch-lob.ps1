@@ -120,7 +120,7 @@ $LobConfig = @{
     # 'bow' is forced via BasePath below (the appkey claim is gone without that scope).
     'workday-staging' = @{
         ClientId    = 'wsc-c8e114b2-4e5f-4f18-829e-063561998bbb'
-        Scopes      = 'openid profile offline_access uceb hxp.nucleus.account hxp wdx'
+        Scopes      = 'openid profile offline_access uceb environment_authorization hxp.nucleus.account hxp wdx'
         Iam         = 'staging'
         UcebBaseUrl = 'https://api.uceb.app-intel.staging.app.hyland.com'
         BasePath    = 'bow'

@@ -277,6 +277,55 @@ app.MapPost("/api/chat", async (HttpContext ctx, ChatRequest req) =>
         }
     }
 
+    // Steer the agent to the record's default-list query so "list this record's documents" returns the
+    // SAME complete set the panel shows (every doc type, scoped by the business-object-context field),
+    // instead of the LLM picking an arbitrary configured query and reporting a partial list.
+    if (!string.IsNullOrWhiteSpace(req.BusinessObjectType) && !string.IsNullOrWhiteSpace(req.BusinessObjectId)
+        && !string.IsNullOrWhiteSpace(mcp.BaseUrl) && !string.IsNullOrWhiteSpace(mcp.ApiKey))
+    {
+        try
+        {
+            using var dlqCts = new CancellationTokenSource(TimeSpan.FromSeconds(30));
+            var dlq = await McpJsonRpc.GetDefaultListQueryAsync(httpFactory, mcp, req.BusinessObjectType!, log, dlqCts.Token);
+            if (dlq is not null && !string.IsNullOrWhiteSpace(dlq.BoContextFieldId))
+            {
+                effectiveMessage = (effectiveMessage +
+                    $"\n\n[To list the documents for this record ({req.BusinessObjectType} {req.BusinessObjectId}), call the " +
+                    $"query_documents tool with businessObjectType=\"{req.BusinessObjectType}\", queryId=\"{dlq.Id}\", " +
+                    $"filterFieldId=\"{dlq.BoContextFieldId}\", filterValue=\"{req.BusinessObjectId}\", " +
+                    $"filterOperator=\"EqualsCaseInsensitive\", maxResults=500. Report EVERY returned document — do not " +
+                    $"truncate and do not substitute a different query.]").Trim();
+            }
+        }
+        catch (Exception ex)
+        {
+            log.LogWarning(ex, "/api/chat: default-list steering hint skipped for {Type}", req.BusinessObjectType);
+        }
+
+        // Give the agent the saved-query catalog so it can run a conversational SEARCH: offer the
+        // queries, ask for a value, then execute query_documents with the right queryId/fieldId/operator.
+        try
+        {
+            using var scCts = new CancellationTokenSource(TimeSpan.FromSeconds(30));
+            var catalog = await McpJsonRpc.BuildSearchCatalogAsync(httpFactory, mcp, req.BusinessObjectType!, log, scCts.Token);
+            if (!string.IsNullOrWhiteSpace(catalog))
+            {
+                effectiveMessage = (effectiveMessage +
+                    $"\n\n[To SEARCH this record's documents (find by a field value, not list everything), the saved " +
+                    $"queries available for {req.BusinessObjectType} are:\n{catalog}\n" +
+                    $"When the user wants to search/find a document: present these query names and ask which one, then ask " +
+                    $"for the value to search for. Execute with the query_documents tool: businessObjectType=\"{req.BusinessObjectType}\", " +
+                    $"queryId=<chosen query's id>, filterFieldId=<that query's search fieldId>, filterValue=<the user's value>, " +
+                    $"filterOperator=<that query's operator>, maxResults=25. Use ONLY the queryIds and fieldIds listed above — " +
+                    $"never invent them — and report every returned document.]").Trim();
+            }
+        }
+        catch (Exception ex)
+        {
+            log.LogWarning(ex, "/api/chat: search catalog hint skipped for {Type}", req.BusinessObjectType);
+        }
+    }
+
     var http = httpFactory.CreateClient();
     // The first message can trigger an interactive MCP->UCEB login (up to 120s), so let the
     // per-request CancellationTokenSource be the sole timeout instead of HttpClient's 100s default.
@@ -357,16 +406,29 @@ app.MapPost("/api/context", async (HttpContext ctx, ContextRequest req) =>
     try
     {
         using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(120));
-        // Backend-agnostic listing: query_documents lists a record's documents using the ACTIVE system's
-        // configured queries (merged internally by the tool). If that system has no queries configured,
-        // fall back to the record-scoped list_documents.
-        var text = await McpJsonRpc.CallToolAsync(httpFactory, mcp, "query_documents", new
+        // Default record listing: prefer the configured defaultListQuery (a single query keyed on the
+        // business-object-context field) so EVERY doc type filed against this record shows with one
+        // consistent, generic column set. Falls back to list_documents -> merged record listing for
+        // objects that have no defaultListQuery (e.g. Workday).
+        var dlq = await McpJsonRpc.GetDefaultListQueryAsync(httpFactory, mcp, req.BusinessObjectType, log, cts.Token);
+        string text;
+        object[] documents;
+        string[]? columns = null;
+        if (dlq is not null && !string.IsNullOrWhiteSpace(dlq.BoContextFieldId))
         {
-            businessObjectType = req.BusinessObjectType,
-            businessObjectId = req.BusinessObjectId,
-        }, log, cts.Token);
-
-        if (text.Contains("No document queries are configured", StringComparison.OrdinalIgnoreCase))
+            text = await McpJsonRpc.CallToolAsync(httpFactory, mcp, "query_documents", new
+            {
+                businessObjectType = req.BusinessObjectType,
+                queryId = dlq.Id,
+                filterFieldId = dlq.BoContextFieldId,
+                filterValue = req.BusinessObjectId,
+                filterOperator = "EqualsCaseInsensitive",
+                maxResults = 500,
+            }, log, cts.Token);
+            documents = McpJsonRpc.ParseDocumentList(text);
+            if (dlq.Columns.Length > 0) columns = dlq.Columns;
+        }
+        else
         {
             text = await McpJsonRpc.CallToolAsync(httpFactory, mcp, "list_documents", new
             {
@@ -374,9 +436,18 @@ app.MapPost("/api/context", async (HttpContext ctx, ContextRequest req) =>
                 businessObjectType = req.BusinessObjectType,
                 onlyMine = req.OnlyMine ?? false,
             }, log, cts.Token);
-        }
 
-        var documents = McpJsonRpc.ParseDocumentList(text);
+            documents = McpJsonRpc.ParseDocumentList(text);
+            if (documents.Length == 0)
+            {
+                text = await McpJsonRpc.CallToolAsync(httpFactory, mcp, "query_documents", new
+                {
+                    businessObjectType = req.BusinessObjectType,
+                    businessObjectId = req.BusinessObjectId,
+                }, log, cts.Token);
+                documents = McpJsonRpc.ParseDocumentList(text);
+            }
+        }
         log.LogInformation("[/api/context] type={Type} id={Id} -> {Count} document(s)",
             req.BusinessObjectType, req.BusinessObjectId, documents.Length);
         return Results.Json(new
@@ -384,6 +455,7 @@ app.MapPost("/api/context", async (HttpContext ctx, ContextRequest req) =>
             businessObjectId = req.BusinessObjectId,
             businessObjectType = req.BusinessObjectType,
             documents,
+            columns,
             raw = text,
         });
     }
@@ -416,6 +488,133 @@ app.MapGet("/api/doctypes", async (HttpContext ctx) =>
     {
         log.LogError(ex, "/api/doctypes failed");
         return Results.Json(new { error = "doctypes_failed", detail = ex.Message }, statusCode: 502);
+    }
+});
+
+// ---------- Doc-type metadata fields: user-editable fields for the upload form ----------
+// Powers the upload section's dynamic metadata inputs. Workday reads the type's capture default
+// attributes; Salesforce/CIC reads the type's configured field labels from the solution config
+// (excluding the record-scoping / auto-mapped fields).
+app.MapGet("/api/doctype-fields", async (HttpContext ctx) =>
+{
+    var sessionId = ctx.Request.Headers["X-BFF-Session"].ToString();
+    if (string.IsNullOrEmpty(sessionId) || !sessions.TryGet(sessionId, out _))
+        return Results.Json(new { error = "not_authenticated" }, statusCode: 401);
+
+    var docType = ctx.Request.Query["docType"].ToString();
+    var boType = ctx.Request.Query["businessObjectType"].ToString();
+    var boId = ctx.Request.Query["businessObjectId"].ToString();
+    var workday = string.Equals(ctx.Request.Query["workday"].ToString(), "true", StringComparison.OrdinalIgnoreCase);
+
+    if (string.IsNullOrWhiteSpace(docType))
+        return Results.Json(new { error = "missing_docType", detail = "docType is required." }, statusCode: 400);
+
+    if (string.IsNullOrWhiteSpace(mcp.BaseUrl) || string.IsNullOrWhiteSpace(mcp.ApiKey))
+        return Results.Json(new { error = "mcp_not_configured" }, statusCode: 500);
+
+    try
+    {
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(60));
+        var fields = workday
+            ? await McpJsonRpc.GetWorkdayDocTypeFieldsAsync(httpFactory, mcp, docType,
+                string.IsNullOrWhiteSpace(boType) ? "employee" : boType, boId, log, cts.Token)
+            : await McpJsonRpc.GetCicDocTypeFieldsAsync(httpFactory, mcp, docType, boType, log, cts.Token);
+        return Results.Json(new { fields });
+    }
+    catch (Exception ex)
+    {
+        log.LogError(ex, "/api/doctype-fields failed for {DocType}", docType);
+        return Results.Json(new { error = "doctype_fields_failed", detail = ex.Message }, statusCode: 502);
+    }
+});
+
+// ---------- Native query model: list queries, a query's metadata, and execute (server-side search) ----------
+// Mirrors the native HFS/HFW query mechanism: list_queries -> get_query_metadata (searchable inputs + result
+// columns) -> query_documents (execute with a keyword filter). Returns the raw tool JSON for the extension to
+// render dynamic columns + a validated keyword-search form.
+app.MapGet("/api/queries", async (HttpContext ctx) =>
+{
+    var sessionId = ctx.Request.Headers["X-BFF-Session"].ToString();
+    if (string.IsNullOrEmpty(sessionId) || !sessions.TryGet(sessionId, out _))
+        return Results.Json(new { error = "not_authenticated" }, statusCode: 401);
+    if (string.IsNullOrWhiteSpace(mcp.BaseUrl) || string.IsNullOrWhiteSpace(mcp.ApiKey))
+        return Results.Json(new { error = "mcp_not_configured" }, statusCode: 500);
+    var boType = ctx.Request.Query["businessObjectType"].ToString();
+    try
+    {
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(60));
+        // Show ONLY the queries configured for this business object (solution config queryConfig[busObject]),
+        // matching native HFS — not the system-wide list. Falls back to list_queries when unspecified.
+        if (!string.IsNullOrWhiteSpace(boType))
+        {
+            var configured = await McpJsonRpc.GetQueriesForBusinessObjectAsync(httpFactory, mcp, boType, log, cts.Token);
+            if (configured is not null)
+                return Results.Json(new { queries = configured });
+        }
+        var text = await McpJsonRpc.CallToolAsync(httpFactory, mcp, "list_queries", new { }, log, cts.Token);
+        return Results.Json(new { raw = text });
+    }
+    catch (Exception ex)
+    {
+        log.LogError(ex, "/api/queries failed");
+        return Results.Json(new { error = "queries_failed", detail = ex.Message }, statusCode: 502);
+    }
+});
+
+app.MapGet("/api/query-metadata", async (HttpContext ctx) =>
+{
+    var sessionId = ctx.Request.Headers["X-BFF-Session"].ToString();
+    if (string.IsNullOrEmpty(sessionId) || !sessions.TryGet(sessionId, out _))
+        return Results.Json(new { error = "not_authenticated" }, statusCode: 401);
+    var queryId = ctx.Request.Query["queryId"].ToString();
+    if (string.IsNullOrWhiteSpace(queryId))
+        return Results.Json(new { error = "missing_queryId", detail = "queryId is required." }, statusCode: 400);
+    if (string.IsNullOrWhiteSpace(mcp.BaseUrl) || string.IsNullOrWhiteSpace(mcp.ApiKey))
+        return Results.Json(new { error = "mcp_not_configured" }, statusCode: 500);
+    try
+    {
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(60));
+        var text = await McpJsonRpc.CallToolAsync(httpFactory, mcp, "get_query_metadata", new { queryId }, log, cts.Token);
+        return Results.Json(new { raw = text });
+    }
+    catch (Exception ex)
+    {
+        log.LogError(ex, "/api/query-metadata failed for {QueryId}", queryId);
+        return Results.Json(new { error = "query_metadata_failed", detail = ex.Message }, statusCode: 502);
+    }
+});
+
+// Executes a query server-side (keyword search). Body: { businessObjectType, queryId?, businessObjectId?,
+// filterFieldId?, filterValue?, filterOperator? }. Returns the parsed documents (same shape as /api/context).
+app.MapPost("/api/query-execute", async (HttpContext ctx, QueryExecuteRequest req) =>
+{
+    var sessionId = ctx.Request.Headers["X-BFF-Session"].ToString();
+    if (string.IsNullOrEmpty(sessionId) || !sessions.TryGet(sessionId, out _))
+        return Results.Json(new { error = "not_authenticated" }, statusCode: 401);
+    if (string.IsNullOrWhiteSpace(req.BusinessObjectType))
+        return Results.Json(new { error = "missing_fields", detail = "businessObjectType is required." }, statusCode: 400);
+    if (string.IsNullOrWhiteSpace(mcp.BaseUrl) || string.IsNullOrWhiteSpace(mcp.ApiKey))
+        return Results.Json(new { error = "mcp_not_configured" }, statusCode: 500);
+    try
+    {
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(90));
+        var args = new Dictionary<string, object?>
+        {
+            ["businessObjectType"] = req.BusinessObjectType,
+            ["businessObjectId"] = req.BusinessObjectId,
+            ["queryId"] = req.QueryId,
+            ["filterFieldId"] = req.FilterFieldId,
+            ["filterValue"] = req.FilterValue,
+            ["filterOperator"] = string.IsNullOrWhiteSpace(req.FilterOperator) ? "Contains" : req.FilterOperator,
+        };
+        var text = await McpJsonRpc.CallToolAsync(httpFactory, mcp, "query_documents", args, log, cts.Token);
+        var documents = McpJsonRpc.ParseDocumentList(text);
+        return Results.Json(new { documents, raw = text });
+    }
+    catch (Exception ex)
+    {
+        log.LogError(ex, "/api/query-execute failed");
+        return Results.Json(new { error = "query_execute_failed", detail = ex.Message }, statusCode: 502);
     }
 });
 
@@ -561,6 +760,9 @@ app.MapPost("/api/upload", async (HttpContext ctx, UploadRequest req) =>
                 businessObjectType = req.BusinessObjectType,
                 ecmContentTypeName = req.EcmContentTypeName,
                 documentName = stagedName,
+                extraAttributesJson = (req.AdditionalAttributes is { Length: > 0 })
+                    ? JsonSerializer.Serialize(req.AdditionalAttributes)
+                    : null,
             };
             var (text, isError) = await McpJsonRpc.CallToolWithStatusAsync(httpFactory, mcp, "upload_staged_file", uploadArgs, log, cts.Token);
 
@@ -665,6 +867,30 @@ app.MapPost("/api/capture", async (HttpContext ctx, CaptureRequest req) =>
                                     || (name?.EndsWith("businessObjectId", StringComparison.OrdinalIgnoreCase) ?? false))
                                 {
                                     obj["value"] = req.BusinessObjectId;
+                                }
+                            }
+
+                            // Inject any user-entered metadata values onto their matching attribute
+                            // (matched by field id or name), so the upload form's extra fields are filed.
+                            if (req.AdditionalAttributes is { Length: > 0 } userAttrs)
+                            {
+                                foreach (var ua in userAttrs)
+                                {
+                                    var uName = ua.TryGetProperty("name", out var un) ? un.GetString()
+                                        : (ua.TryGetProperty("id", out var ui2) ? ui2.GetString() : null);
+                                    if (string.IsNullOrWhiteSpace(uName)) continue;
+                                    var uVal = ua.TryGetProperty("value", out var uv) ? uv.ToString() : null;
+                                    foreach (var it in dataArr)
+                                    {
+                                        if (it is not JsonObject o2) continue;
+                                        var iid = o2["id"]?.GetValue<string>();
+                                        var inm = o2["name"]?.GetValue<string>();
+                                        if (string.Equals(iid, uName, StringComparison.OrdinalIgnoreCase)
+                                            || string.Equals(inm, uName, StringComparison.OrdinalIgnoreCase))
+                                        {
+                                            o2["value"] = uVal;
+                                        }
+                                    }
                                 }
                             }
                             dataArrayJson = dataArr.ToJsonString();
@@ -1260,6 +1486,305 @@ static class McpJsonRpc
         return text;
     }
 
+    // Returns the queries configured for a business object from the solution config
+    // (businessObjectConfig.queryConfig[busObject].queries), or null when that object has no queryConfig
+    // entry. Shape: [{ id, name, type, default }]. Drives the panel's Queries dropdown per business object.
+    public static async Task<object[]?> GetQueriesForBusinessObjectAsync(
+        IHttpClientFactory httpFactory, McpOptions mcp, string boType, ILogger log, CancellationToken ct)
+    {
+        var text = await CallToolAsync(httpFactory, mcp, "get_solution_configurations", new { }, log, ct);
+        try
+        {
+            using var doc = JsonDocument.Parse(text);
+            var root = doc.RootElement;
+            var data = root.TryGetProperty("data", out var d) ? d : root;
+            if (!data.TryGetProperty("configurations", out var confs)) return null;
+            if (!confs.TryGetProperty("businessObjectConfig", out var boc)) return null;
+            if (!boc.TryGetProperty("queryConfig", out var qc) || qc.ValueKind != JsonValueKind.Array) return null;
+
+            foreach (var entry in qc.EnumerateArray())
+            {
+                var bo = entry.TryGetProperty("busObject", out var b) ? b.GetString() : null;
+                if (!string.Equals(bo, boType, StringComparison.OrdinalIgnoreCase)) continue;
+
+                var list = new List<object>();
+                if (entry.TryGetProperty("queries", out var queries) && queries.ValueKind == JsonValueKind.Array)
+                {
+                    foreach (var q in queries.EnumerateArray())
+                    {
+                        var id = q.TryGetProperty("id", out var qi) ? qi.GetString() : null;
+                        var name = q.TryGetProperty("name", out var qn) ? qn.GetString() : null;
+                        var qtype = q.TryGetProperty("type", out var qt) ? qt.GetString() : null;
+                        var isDefault = q.TryGetProperty("default", out var qd) && qd.ValueKind == JsonValueKind.True;
+                        if (!string.IsNullOrWhiteSpace(id))
+                            list.Add(new { id, name = string.IsNullOrWhiteSpace(name) ? id : name, type = qtype, @default = isDefault });
+                    }
+                }
+                return list.ToArray();
+            }
+            return null;
+        }
+        catch (JsonException ex)
+        {
+            log.LogWarning(ex, "GetQueriesForBusinessObjectAsync: parse failed for {BoType}", boType);
+            return null;
+        }
+    }
+
+    // The default-list query for a business object: its id, the business-object-context field id to
+    // scope by (contextParams.boContext.ecmPropId), and the ordered display-column labels (from the
+    // matching queryConfig query's displayColumns + displayColumnConfig). Null when the object has no
+    // additionalConfig.defaultListQuery — callers then fall back to the native list/record listing.
+    public sealed record DefaultListQueryInfo(string Id, string? BoContextFieldId, string[] Columns);
+
+    public static async Task<DefaultListQueryInfo?> GetDefaultListQueryAsync(
+        IHttpClientFactory httpFactory, McpOptions mcp, string boType, ILogger log, CancellationToken ct)
+    {
+        var text = await CallToolAsync(httpFactory, mcp, "get_solution_configurations", new { }, log, ct);
+        try
+        {
+            using var doc = JsonDocument.Parse(text);
+            var root = doc.RootElement;
+            var data = root.TryGetProperty("data", out var d) ? d : root;
+            if (!data.TryGetProperty("configurations", out var confs)) return null;
+            if (!confs.TryGetProperty("businessObjectConfig", out var boc)) return null;
+
+            // Business-object-context field to scope the query by (the record id lives on this ecm field).
+            string? boCtxFieldId = null;
+            if (boc.TryGetProperty("contextParams", out var cp) && cp.TryGetProperty("boContext", out var bctx)
+                && bctx.TryGetProperty("ecmPropId", out var ep))
+                boCtxFieldId = ep.GetString();
+
+            // Find the first additionalConfig entry for this boType that pins a defaultListQuery.
+            string? dlqId = null;
+            if (boc.TryGetProperty("additionalConfig", out var ac) && ac.ValueKind == JsonValueKind.Array)
+            {
+                foreach (var e in ac.EnumerateArray())
+                {
+                    var bo = e.TryGetProperty("busObject", out var b) ? b.GetString() : null;
+                    if (!string.Equals(bo, boType, StringComparison.OrdinalIgnoreCase)) continue;
+                    if (e.TryGetProperty("defaultListQuery", out var dlq) && dlq.ValueKind == JsonValueKind.Object
+                        && dlq.TryGetProperty("id", out var di) && di.ValueKind == JsonValueKind.String)
+                    {
+                        dlqId = di.GetString();
+                        if (!string.IsNullOrWhiteSpace(dlqId)) break;
+                    }
+                }
+            }
+            if (string.IsNullOrWhiteSpace(dlqId)) return null;
+
+            // Resolve the query's ordered display-column labels from queryConfig.
+            var columns = new List<string>();
+            if (boc.TryGetProperty("queryConfig", out var qc) && qc.ValueKind == JsonValueKind.Array)
+            {
+                foreach (var entry in qc.EnumerateArray())
+                {
+                    var bo = entry.TryGetProperty("busObject", out var b) ? b.GetString() : null;
+                    if (!string.Equals(bo, boType, StringComparison.OrdinalIgnoreCase)) continue;
+                    if (!entry.TryGetProperty("queries", out var queries) || queries.ValueKind != JsonValueKind.Array) break;
+                    foreach (var q in queries.EnumerateArray())
+                    {
+                        var id = q.TryGetProperty("id", out var qi) ? qi.GetString() : null;
+                        if (!string.Equals(id, dlqId, StringComparison.OrdinalIgnoreCase)) continue;
+
+                        // id -> label map from displayColumnConfig.
+                        var labelById = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+                        if (q.TryGetProperty("displayColumnConfig", out var dcc) && dcc.ValueKind == JsonValueKind.Array)
+                            foreach (var c in dcc.EnumerateArray())
+                            {
+                                var cid = c.TryGetProperty("ecmColumnId", out var ci) ? ci.GetString() : null;
+                                var cname = c.TryGetProperty("ecmColumnName", out var cn) ? cn.GetString() : null;
+                                if (!string.IsNullOrWhiteSpace(cid)) labelById[cid!] = string.IsNullOrWhiteSpace(cname) ? cid! : cname!;
+                            }
+
+                        // ordered column ids from the default form factor's ecmColumnSet.
+                        if (q.TryGetProperty("displayColumns", out var dcs) && dcs.TryGetProperty("ecmColumnSets", out var sets)
+                            && sets.ValueKind == JsonValueKind.Array)
+                        {
+                            var defForm = dcs.TryGetProperty("defaultFormFactor", out var df) ? df.GetString() : null;
+                            JsonElement? chosen = null;
+                            foreach (var s in sets.EnumerateArray())
+                            {
+                                var ff = s.TryGetProperty("formFactorId", out var f) ? f.GetString() : null;
+                                if (chosen is null) chosen = s;
+                                if (string.Equals(ff, defForm, StringComparison.OrdinalIgnoreCase)) { chosen = s; break; }
+                            }
+                            if (chosen is { } cs && cs.TryGetProperty("columns", out var colIds) && colIds.ValueKind == JsonValueKind.Array)
+                                foreach (var cidEl in colIds.EnumerateArray())
+                                {
+                                    var cid = cidEl.GetString();
+                                    if (!string.IsNullOrWhiteSpace(cid))
+                                        columns.Add(labelById.TryGetValue(cid!, out var lbl) ? lbl : cid!);
+                                }
+                        }
+                        break;
+                    }
+                    break;
+                }
+            }
+            return new DefaultListQueryInfo(dlqId!, boCtxFieldId, columns.ToArray());
+        }
+        catch (JsonException ex)
+        {
+            log.LogWarning(ex, "GetDefaultListQueryAsync: parse failed for {BoType}", boType);
+            return null;
+        }
+    }
+
+    // Builds a human-readable catalog of the saved queries a business object can be SEARCHED by, from
+    // the solution config queryConfig: each query's name/id and its user-editable search field(s)
+    // (filterClauses where editable==true) with fieldId + default operator. Null when none exist.
+    // Drives the chatbot's conversational search (pick a query -> enter a value -> query_documents).
+    public static async Task<string?> BuildSearchCatalogAsync(
+        IHttpClientFactory httpFactory, McpOptions mcp, string boType, ILogger log, CancellationToken ct)
+    {
+        var text = await CallToolAsync(httpFactory, mcp, "get_solution_configurations", new { }, log, ct);
+        try
+        {
+            using var doc = JsonDocument.Parse(text);
+            var root = doc.RootElement;
+            var data = root.TryGetProperty("data", out var d) ? d : root;
+            if (!data.TryGetProperty("configurations", out var confs)) return null;
+            if (!confs.TryGetProperty("businessObjectConfig", out var boc)) return null;
+            if (!boc.TryGetProperty("queryConfig", out var qc) || qc.ValueKind != JsonValueKind.Array) return null;
+
+            var lines = new List<string>();
+            foreach (var entry in qc.EnumerateArray())
+            {
+                var bo = entry.TryGetProperty("busObject", out var b) ? b.GetString() : null;
+                if (!string.Equals(bo, boType, StringComparison.OrdinalIgnoreCase)) continue;
+                if (!entry.TryGetProperty("queries", out var queries) || queries.ValueKind != JsonValueKind.Array) break;
+
+                foreach (var q in queries.EnumerateArray())
+                {
+                    var id = q.TryGetProperty("id", out var qi) ? qi.GetString() : null;
+                    var name = q.TryGetProperty("name", out var qn) ? qn.GetString() : null;
+                    if (string.IsNullOrWhiteSpace(id)) continue;
+
+                    var fields = new List<string>();
+                    if (q.TryGetProperty("filterClauses", out var fcs) && fcs.ValueKind == JsonValueKind.Array)
+                        foreach (var fc in fcs.EnumerateArray())
+                        {
+                            // Include every filter field so the chatbot offers the same query set as the
+                            // panel's Search dropdown (auto record-scoped fields included).
+                            var fid = fc.TryGetProperty("ecmFieldId", out var fi) ? fi.GetString() : null;
+                            var fname = fc.TryGetProperty("ecmFieldName", out var fn) ? fn.GetString() : null;
+                            var op = fc.TryGetProperty("operator", out var o) ? o.GetString() : null;
+                            if (!string.IsNullOrWhiteSpace(fid))
+                                fields.Add($"{fname} [fieldId {fid}, operator {op}]");
+                        }
+                    if (fields.Count == 0) continue; // no filter field on this query
+
+                    lines.Add($"- \"{name}\" [queryId {id}] — search field: {string.Join("; ", fields)}");
+                }
+                break;
+            }
+            return lines.Count > 0 ? string.Join("\n", lines) : null;
+        }
+        catch (JsonException ex)
+        {
+            log.LogWarning(ex, "BuildSearchCatalogAsync: parse failed for {BoType}", boType);
+            return null;
+        }
+    }
+
+    // Returns the user-editable metadata fields for a CIC/Salesforce content type from the solution
+    // config: additionalConfig[type].ecmMetadataFieldLabels, minus the auto-mapped
+    // (metadataFieldImportMappings) fields. Shape: [{ id, label }].
+    public static async Task<object[]> GetCicDocTypeFieldsAsync(
+        IHttpClientFactory httpFactory, McpOptions mcp, string docType, string? boType,
+        ILogger log, CancellationToken ct)
+    {
+        var text = await CallToolAsync(httpFactory, mcp, "get_solution_configurations", new { }, log, ct);
+        var fields = new List<object>();
+        try
+        {
+            using var doc = JsonDocument.Parse(text);
+            var root = doc.RootElement;
+            var data = root.TryGetProperty("data", out var d) ? d : root;
+            if (!data.TryGetProperty("configurations", out var confs)) return fields.ToArray();
+            if (!confs.TryGetProperty("businessObjectConfig", out var boc)) return fields.ToArray();
+            if (!boc.TryGetProperty("additionalConfig", out var addl) || addl.ValueKind != JsonValueKind.Array)
+                return fields.ToArray();
+
+            foreach (var entry in addl.EnumerateArray())
+            {
+                var typeName = entry.TryGetProperty("ecmContentTypeName", out var tn) ? tn.GetString() : null;
+                if (!string.Equals(typeName, docType, StringComparison.OrdinalIgnoreCase)) continue;
+                if (!string.IsNullOrWhiteSpace(boType) && entry.TryGetProperty("busObject", out var b)
+                    && b.GetString() is { Length: > 0 } bo
+                    && !string.Equals(bo, boType, StringComparison.OrdinalIgnoreCase)) continue;
+
+                // Exclude only the record-scoping field (inputSource == "1"), which is auto-filled from the
+                // record; every other labeled field is user-editable metadata. (For OnBase types ALL fields
+                // appear in metadataFieldImportMappings, so excluding all of them would leave nothing.)
+                var autoIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                if (entry.TryGetProperty("metadataFieldImportMappings", out var mm) && mm.ValueKind == JsonValueKind.Array)
+                    foreach (var m in mm.EnumerateArray())
+                    {
+                        var src = m.TryGetProperty("inputSource", out var isrc)
+                            ? (isrc.ValueKind == JsonValueKind.String ? isrc.GetString() : isrc.ToString())
+                            : null;
+                        if (src == "1" && m.TryGetProperty("ecmFieldName", out var fn) && fn.GetString() is { Length: > 0 } fns)
+                            autoIds.Add(fns);
+                    }
+
+                if (entry.TryGetProperty("ecmMetadataFieldLabels", out var labels) && labels.ValueKind == JsonValueKind.Array)
+                {
+                    foreach (var l in labels.EnumerateArray())
+                    {
+                        var id = l.TryGetProperty("ecmColumnId", out var ci) ? ci.GetString() : null;
+                        var label = l.TryGetProperty("ecmColumnName", out var cn) ? cn.GetString() : null;
+                        if (string.IsNullOrWhiteSpace(id) || autoIds.Contains(id!)) continue;
+                        fields.Add(new { id, label = string.IsNullOrWhiteSpace(label) ? id : label });
+                    }
+                }
+                break;
+            }
+        }
+        catch (JsonException ex) { log.LogWarning(ex, "GetCicDocTypeFieldsAsync: parse failed"); }
+        return fields.ToArray();
+    }
+
+    // Returns the user-editable capture fields for a Workday document type from
+    // get_capture_default_attributes, minus the record-identifying / auto fields. Shape: [{ id, label }].
+    public static async Task<object[]> GetWorkdayDocTypeFieldsAsync(
+        IHttpClientFactory httpFactory, McpOptions mcp, string docType, string boType, string? boId,
+        ILogger log, CancellationToken ct)
+    {
+        var singleValued = JsonSerializer.Serialize(new[] { new { name = "businessObjectId", value = boId ?? "" } });
+        var text = await CallToolAsync(httpFactory, mcp, "get_capture_default_attributes", new
+        {
+            documentTypeId = docType,
+            businessObjectType = boType,
+            singleValuedBusinessObjectAttributesJson = singleValued,
+        }, log, ct);
+
+        var fields = new List<object>();
+        try
+        {
+            var braceIdx = text.IndexOf('{');
+            if (braceIdx < 0) return fields.ToArray();
+            using var doc = JsonDocument.Parse(text[braceIdx..]);
+            if (!doc.RootElement.TryGetProperty("data", out var data) || data.ValueKind != JsonValueKind.Array)
+                return fields.ToArray();
+            foreach (var item in data.EnumerateArray())
+            {
+                var id = item.TryGetProperty("id", out var i) ? i.GetString() : null;
+                if (string.IsNullOrWhiteSpace(id)) continue;
+                var name = item.TryGetProperty("name", out var n) ? n.GetString() : null;
+                var label = item.TryGetProperty("businessObjectAttributeName", out var bn)
+                    && bn.GetString() is { Length: > 0 } bns ? bns : (name ?? id);
+                var key = ($"{id} {name}").ToLowerInvariant();
+                if (key.Contains("objectid") || key.Contains("employeeid") || key.Contains("doc_type_id"))
+                    continue;
+                fields.Add(new { id, label });
+            }
+        }
+        catch (JsonException ex) { log.LogWarning(ex, "GetWorkdayDocTypeFieldsAsync: parse failed"); }
+        return fields.ToArray();
+    }
+
     // Like CallToolAsync but also returns the tool's isError flag from the JSON-RPC result, so callers
     // (e.g. upload) can tell a real success from a tool that ran but reported a failure in its text.
     public static async Task<(string Text, bool IsError)> CallToolWithStatusAsync(
@@ -1408,8 +1933,8 @@ static class McpJsonRpc
     // Expected lines: "- docId: <id> (Col=Value, Col2=Value2)".
     public static object[] ParseDocumentList(string text)
     {
-        var docs = new List<object>();
-        if (string.IsNullOrEmpty(text)) return docs.ToArray();
+        var docs = new List<(long sortKey, object doc)>();
+        if (string.IsNullOrEmpty(text)) return Array.Empty<object>();
 
         foreach (var rawLine in text.Split('\n'))
         {
@@ -1470,10 +1995,12 @@ static class McpJsonRpc
                 if (k is not null) attributes.Remove(k);
             }
 
-            docs.Add(new { docId, name, type, attributes });
+            var sortKey = long.TryParse(docId, out var idNum) ? idNum : 0;
+            docs.Add((sortKey, new { docId, name, type, attributes }));
         }
 
-        return docs.ToArray();
+        // Newest-first: latest uploads (highest docId) render at the top of the panel.
+        return docs.OrderByDescending(d => d.sortKey).Select(d => d.doc).ToArray();
     }
 
     // Parses the list_system_configurations tool's raw JSON ({ data: [ { friendlyName, systemType,
@@ -1763,7 +2290,8 @@ sealed record WorkerMatch(
     string? SupervisoryOrganization);
 
 
-sealed record ChatRequest(string Message, string? ConversationId, ChatAttachment[]? Attachments);
+sealed record ChatRequest(string Message, string? ConversationId, ChatAttachment[]? Attachments,
+    string? BusinessObjectType, string? BusinessObjectId);
 
 sealed record ChatAttachment(string? Name, string? Mime, string DataBase64);
 
@@ -1771,7 +2299,16 @@ sealed record ContextRequest(string BusinessObjectType, string BusinessObjectId,
 
 sealed record SystemConfigRequest(string FriendlyName);
 
-sealed record UploadRequest(string BusinessObjectType, string BusinessObjectId, string EcmContentTypeName, ChatAttachment[]? Attachments);
+sealed record UploadRequest(string BusinessObjectType, string BusinessObjectId, string EcmContentTypeName, ChatAttachment[]? Attachments, JsonElement[]? AdditionalAttributes);
+
+// Server-side query execution (native keyword search). One optional keyword filter for now.
+sealed record QueryExecuteRequest(
+    string BusinessObjectType,
+    string? QueryId,
+    string? BusinessObjectId,
+    string? FilterFieldId,
+    string? FilterValue,
+    string? FilterOperator);
 
 // Workday capture: file(s) + the documentType and the record-identifying business-object attributes.
 // BusinessObjectAttributes is passed through verbatim as a JSON array to the MCP capture_document tool.
@@ -1779,6 +2316,7 @@ sealed record CaptureRequest(
     string? BusinessObjectType,
     string DocumentTypeId,
     JsonElement[]? BusinessObjectAttributes,
+    JsonElement[]? AdditionalAttributes,
     string? BusinessObjectId,
     string? DocumentId,
     bool? CreateNewVersion,

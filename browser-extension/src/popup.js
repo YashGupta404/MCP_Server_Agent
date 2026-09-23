@@ -2,7 +2,7 @@
 
 import { CONFIG } from "./config.js";
 import { interactiveLogin, getSession, clearTokens, getSystemConfig, setStoredSystemConfig, clearSystemConfig } from "./auth.js";
-import { sendMessageToAgent, fetchContextDocuments, openInViewer, fetchDocumentPreview, fetchDocumentContent, uploadDocuments, captureDocument, fetchDocumentTypes, resolveWorker, fetchSystemConfigs, setSystemConfig, fetchMe } from "./agent.js";
+import { sendMessageToAgent, fetchContextDocuments, openInViewer, fetchDocumentPreview, fetchDocumentContent, uploadDocuments, captureDocument, fetchDocumentTypes, fetchDocTypeFields, fetchQueries, fetchQueryMetadata, executeQuery, resolveWorker, fetchSystemConfigs, setSystemConfig, fetchMe } from "./agent.js";
 
 import * as pdfjsLib from "./lib/pdf.mjs";
 
@@ -37,9 +37,14 @@ const els = {
   docList: document.getElementById("docList"),
   docPane: document.getElementById("docPane"),
   docSearch: document.getElementById("docSearch"),
+  queryBar: document.getElementById("queryBar"),
+  querySelect: document.getElementById("querySelect"),
+  queryInputs: document.getElementById("queryInputs"),
+  queryRunBtn: document.getElementById("queryRunBtn"),
+  queryClearBtn: document.getElementById("queryClearBtn"),
+  queryStatus: document.getElementById("queryStatus"),
   metaPane: document.getElementById("metaPane"),
   dropzone: document.getElementById("dropzone"),
-  actAttach: document.getElementById("actAttach"),
   tabDocuments: document.getElementById("tabDocuments"),
   tabMetadata: document.getElementById("tabMetadata"),
   manualForm: document.getElementById("manualForm"),
@@ -52,9 +57,11 @@ const els = {
   uploadFileInput: document.getElementById("uploadFileInput"),
   uploadFiles: document.getElementById("uploadFiles"),
   uploadDocType: document.getElementById("uploadDocType"),
+  uploadMeta: document.getElementById("uploadMeta"),
   uploadRecordId: document.getElementById("uploadRecordId"),
   uploadBtn: document.getElementById("uploadBtn"),
   uploadStatus: document.getElementById("uploadStatus"),
+  uploadSection: document.getElementById("uploadSection"),
   viewerOverlay: document.getElementById("viewerOverlay"),
   viewerFrame: document.getElementById("viewerFrame"),
   viewerCanvas: document.getElementById("viewerCanvas"),
@@ -75,6 +82,8 @@ const els = {
 
 // Documents currently shown in the panel (used by the Metadata tab).
 let loadedDocuments = [];
+// Display columns for the current result set (the active query's result columns), or null to derive them.
+let currentColumns = null;
 
 let signedIn = false;
 /** The ECM system (friendlyName) chosen for this session, or null until the user picks one. */
@@ -564,8 +573,11 @@ function setContextStatus(text) {
   els.contextStatus.textContent = text;
 }
 
-function renderDocuments(documents) {
+function renderDocuments(documents, columns) {
   loadedDocuments = Array.isArray(documents) ? documents : [];
+  // Columns come from the active query's result columns (native display columns). When absent (default
+  // record listing), they're derived from the metadata the server returned for each document.
+  currentColumns = Array.isArray(columns) && columns.length ? columns : null;
   // The search box is only useful when there's something to search.
   els.docSearch.hidden = loadedDocuments.length === 0;
   if (loadedDocuments.length === 0) els.docSearch.value = "";
@@ -581,6 +593,41 @@ function filterDocs(documents, term) {
     if (doc.attributes) for (const [k, v] of Object.entries(doc.attributes)) { bits.push(k, v); }
     return bits.filter(Boolean).join(" ").toLowerCase().includes(q);
   });
+}
+
+// The display columns for the current result set: the active query's result columns when known,
+// otherwise the union of the metadata fields the server returned (plus Document Type). Never the filename.
+function resolveColumns(documents) {
+  if (currentColumns && currentColumns.length) return currentColumns;
+  const cols = [];
+  const seen = new Set();
+  let hasType = false;
+  for (const d of documents) {
+    if (d.type) hasType = true;
+    if (d.attributes) {
+      for (const k of Object.keys(d.attributes)) {
+        const key = k.toLowerCase();
+        if (!seen.has(key)) { seen.add(key); cols.push(k); }
+      }
+    }
+  }
+  if (hasType && !seen.has("document type")) cols.push("Document Type");
+  return cols;
+}
+
+// The value a document shows under a given display column.
+function cellValue(doc, col) {
+  const c = (col || "").toLowerCase();
+  if (c === "document type" || c === "documenttypename" || c === "type") return doc.type || "";
+  if (c === "hfs_name" || c === "document name" || c === "name") return doc.name || "";
+  let v = "";
+  if (doc.attributes) {
+    const k = Object.keys(doc.attributes).find((x) => x.toLowerCase() === c);
+    if (k) v = doc.attributes[k] ?? "";
+  }
+  // Trim an ISO datetime (e.g. 2026-09-18T00:00:00Z) down to the plain date for display.
+  const iso = /^(\d{4}-\d{2}-\d{2})T/.exec(v);
+  return iso ? iso[1] : v;
 }
 
 function renderDocRows(documents) {
@@ -601,75 +648,51 @@ function renderDocRows(documents) {
   }
   setContextStatus(null);
 
+  const columns = resolveColumns(documents);
+
+  const table = document.createElement("table");
+  table.className = "doctable";
+
+  const thead = document.createElement("thead");
+  const htr = document.createElement("tr");
+  for (const col of columns) {
+    const th = document.createElement("th");
+    th.textContent = col;
+    htr.appendChild(th);
+  }
+  thead.appendChild(htr);
+  table.appendChild(thead);
+
+  const tbody = document.createElement("tbody");
   for (const doc of documents) {
-    const attrs = doc.attributes ? Object.entries(doc.attributes) : [];
-    const extName = fileExtension(doc.name);
-    const kind = iconKind(extName);
+    const tr = document.createElement("tr");
+    tr.className = "doctable__row";
+    tr.title = `Open in the Hyland viewer (docId ${doc.docId})`;
 
-    const li = document.createElement("li");
-    li.className = "docrow";
-    li.title = `Open ${doc.name || doc.docId} in the Hyland viewer (docId ${doc.docId})`;
-
-    const icon = document.createElement("span");
-    icon.className = `docrow__icon docrow__icon--${kind}`;
-    icon.textContent = (extName || "doc").slice(0, 4).toUpperCase();
-
-    const body = document.createElement("div");
-    body.className = "docrow__body";
-    const name = document.createElement("div");
-    name.className = "docrow__name";
-    name.textContent = doc.name || doc.docId;
-    const sub = document.createElement("div");
-    sub.className = "docrow__sub";
-    sub.textContent = doc.type || `docId ${doc.docId}`;
-    body.append(name, sub);
-
-    // Show the document type + every other configured metadata field as labeled chips.
-    const metaPairs = [];
-    if (doc.type) metaPairs.push(["Type", doc.type]);
-    for (const [k, v] of attrs) { if (v && String(v).trim()) metaPairs.push([k, v]); }
-    if (metaPairs.length) {
-      const meta = document.createElement("div");
-      meta.className = "docrow__meta";
-      for (const [k, v] of metaPairs) {
-        const chip = document.createElement("span");
-        chip.className = "docrow__metachip";
-        const kk = document.createElement("span");
-        kk.className = "docrow__metak";
-        kk.textContent = k;
-        const vv = document.createElement("span");
-        vv.className = "docrow__metav";
-        vv.textContent = v;
-        chip.append(kk, vv);
-        meta.appendChild(chip);
-      }
-      body.appendChild(meta);
+    for (const col of columns) {
+      const td = document.createElement("td");
+      const val = cellValue(doc, col);
+      td.textContent = val;
+      td.title = val;
+      tr.appendChild(td);
     }
 
-    li.append(icon, body);
-
-    const version = versionOf(doc.attributes);
-    if (version) {
-      const ver = document.createElement("span");
-      ver.className = "docrow__ver";
-      ver.textContent = version;
-      li.appendChild(ver);
-    }
-
-    li.addEventListener("click", async () => {
-      li.style.opacity = "0.6";
+    tr.addEventListener("click", async () => {
+      tr.style.opacity = "0.6";
       try {
         await openDocumentPreview(doc);
       } catch (err) {
         console.error("[viewer] openDocumentPreview failed:", err);
         setContextStatus(`Open failed: ${err.message}`);
       } finally {
-        li.style.opacity = "";
+        tr.style.opacity = "";
       }
     });
 
-    els.docList.appendChild(li);
+    tbody.appendChild(tr);
   }
+  table.appendChild(tbody);
+  els.docList.appendChild(table);
 }
 
 function fileExtension(name) {
@@ -760,20 +783,12 @@ async function loadContextPanel() {
     return;
   }
 
-  // Workday: documents (list + upload) are ALWAYS scoped to the SIGNED-IN user (arizzo), never the
-  // employee profile being viewed. Resolve "self" from the login identity and override the page context.
+  // Workday: the PANEL shows the documents of the employee whose page you're on (a subordinate you can
+  // see). We still resolve the signed-in worker ("self", arizzo) separately so the CHATBOT can answer
+  // "my documents" as the signed-in user, regardless of whose page the panel is showing.
   if (isWorkdayContext(currentContext)) {
     try {
       if (!selfWorker) selfWorker = await fetchMe();
-      if (selfWorker?.wid) {
-        currentContext = {
-          businessObjectType: "employee",
-          businessObjectId: selfWorker.wid,
-          displayName: selfWorker.name || `employee ${selfWorker.wid}`,
-          source: "workday",
-          self: true,
-        };
-      }
     } catch (err) {
       console.warn("[me] could not resolve the signed-in worker:", err);
     }
@@ -783,9 +798,15 @@ async function loadContextPanel() {
   // (Salesforce vs Workday). Fire-and-forget so it doesn't block loading the record's documents.
   populateDocTypes(true);
 
+  // Load the configured queries for the active system (native server-side search). Fire-and-forget.
+  loadQueries();
+
   // Decide which manual-entry form to show from the PAGE the user is on (Salesforce vs Workday), so a
   // Salesforce record never shows the Workday worker lookup. Unknown / no-record hosts -> generic form.
   currentLob = lobFromSource(currentContext?.source);
+
+  // Default the upload card back to visible; the "not authorised" branch below hides it.
+  if (els.uploadSection) els.uploadSection.hidden = false;
 
   // Signed in but the active tab isn't a supported record page (or is a chrome:// page).
   // Keep the panel visible with a hint + a manual entry so the feature is discoverable/testable.
@@ -802,6 +823,29 @@ async function loadContextPanel() {
     setContextStatus(
       "Open a Salesforce / ServiceNow / Workday / Outlook record in this tab and press the refresh icon — or enter a UCEB record below to preview its content."
     );
+    return;
+  }
+
+  // Workday peer / your own manager: their page shows a NAME but no Employee ID, which means the
+  // solution config doesn't let the signed-in user (arizzo) view or capture their documents. Hide the
+  // doc list, filter and upload card, and show a clear "not authorised" message.
+  if (currentContext.notAuthorized) {
+    const who = currentContext.displayName || "this employee";
+    els.contextPanel.hidden = false;
+    els.manualForm.hidden = true;
+    els.workerForm.hidden = true;
+    els.workerResults.hidden = true;
+    selectTab("documents");
+    els.contextType.textContent = "employee";
+    els.contextName.textContent = who;
+    els.uploadRecordId.value = "";
+    els.contextDesc.hidden = true;
+    els.docList.innerHTML = "";
+    loadedDocuments = [];
+    if (els.docSearch) els.docSearch.hidden = true;
+    if (els.queryBar) els.queryBar.hidden = true;
+    if (els.uploadSection) els.uploadSection.hidden = true;
+    setContextStatus(`You are not authorised to view or capture ${who}'s documents.`);
     return;
   }
 
@@ -852,9 +896,9 @@ async function loadContextPanel() {
   setContextStatus("Loading related content…");
 
   try {
-    const { documents } = await fetchContextDocuments(currentContext);
+    const { documents, columns } = await fetchContextDocuments(currentContext);
     if (loadToken !== contextLoadSeq) return; // superseded by a newer record load — don't clobber it
-    renderDocuments(documents);
+    renderDocuments(documents, columns);
   } catch (err) {
     if (loadToken !== contextLoadSeq) return;
     setContextStatus(`Couldn't load related content: ${err.message}`);
@@ -1203,7 +1247,6 @@ document.addEventListener("keydown", (e) => {
   else if (e.key === "ArrowRight") { e.preventDefault(); goToNextPage(); }
 });
 
-els.actAttach.addEventListener("click", () => els.uploadFileInput.click());
 els.dropzone.addEventListener("click", () => els.uploadFileInput.click());
 
 els.uploadFileInput.addEventListener("change", () => {
@@ -1276,6 +1319,243 @@ function isWorkdayRecord(ctx, boType) {
   return type === "employee" || type === "worker" || source.includes("workday");
 }
 
+// Renders dynamic metadata inputs for the selected document type so the user can add other metadata
+// values (beyond the doc type) during upload. Fields come from BFF /api/doctype-fields.
+async function loadUploadMetaFields() {
+  els.uploadMeta.innerHTML = "";
+  els.uploadMeta.hidden = true;
+  const docType = els.uploadDocType.value.trim();
+  if (!docType) return;
+  const boType = currentContext?.businessObjectType || els.contextType.textContent?.trim();
+  const boId = els.uploadRecordId.value.trim() || currentContext?.businessObjectId || "";
+  const workday = isWorkdayRecord(currentContext, boType);
+  try {
+    const fields = await fetchDocTypeFields(docType, boType, boId, workday);
+    if (!Array.isArray(fields) || !fields.length) return;
+    const title = document.createElement("div");
+    title.className = "hec__uploadMetaTitle";
+    title.textContent = "Additional metadata (optional)";
+    els.uploadMeta.appendChild(title);
+    for (const f of fields) {
+      if (!f || !f.id) continue;
+      const wrap = document.createElement("label");
+      wrap.className = "hec__metaField";
+      const lbl = document.createElement("span");
+      lbl.className = "hec__metaLabel";
+      lbl.textContent = f.label || f.id;
+      const inp = document.createElement("input");
+      inp.className = "manual__input";
+      inp.type = "text";
+      inp.placeholder = f.label || f.id;
+      inp.dataset.fieldId = f.id;
+      wrap.append(lbl, inp);
+      els.uploadMeta.appendChild(wrap);
+    }
+    els.uploadMeta.hidden = false;
+  } catch {
+    // Non-fatal: if fields can't be loaded, the upload still works without extra metadata.
+  }
+}
+
+// Collects the filled metadata inputs as [{ name, value }] for the upload/capture call.
+function collectUploadMeta() {
+  const out = [];
+  els.uploadMeta.querySelectorAll("input[data-field-id]").forEach((inp) => {
+    const value = inp.value.trim();
+    if (value) out.push({ name: inp.dataset.fieldId, value });
+  });
+  return out;
+}
+
+// Clears the upload form after a successful upload: files, chosen document type, and the metadata
+// fields (their values must not linger into the next upload).
+function resetUploadForm() {
+  pendingUploadFiles = [];
+  renderUploadFiles();
+  els.uploadDocType.value = "";
+  els.uploadMeta.innerHTML = "";
+  els.uploadMeta.hidden = true;
+}
+
+els.uploadDocType.addEventListener("change", loadUploadMetaFields);
+
+// --- Native Queries: server-side keyword search (Phase 3) ---
+let queryMetaCache = {};
+
+// Human-friendly labels for the raw UCEB operator tokens shown in the search operator dropdown.
+function friendlyOperator(op) {
+  const map = {
+    EqualsCaseInsensitive: "Equals",
+    EqualsCaseSensitive: "Equals (exact)",
+    ContainsCaseInsensitive: "Contains",
+    ContainsCaseSensitive: "Contains (exact)",
+    StartsWithCaseInsensitive: "Starts with",
+    StartsWithCaseSensitive: "Starts with (exact)",
+    Equals: "Equals",
+    Contains: "Contains",
+    StartsWith: "Starts with",
+  };
+  return map[op] || op.replace(/([a-z])([A-Z])/g, "$1 $2");
+}
+
+async function loadQueries() {
+  if (!els.querySelect) return;
+  // Workday has no server-side query capability (queries are Salesforce-only) — hide the query bar and
+  // rely on the "Filter results" box instead. Avoids a wasted (403) list_queries round trip.
+  if (isWorkdayContext(currentContext)) {
+    els.queryBar.hidden = true;
+    return;
+  }
+  try {
+    const boType = currentContext?.businessObjectType || els.contextType?.textContent?.trim();
+    const queries = await fetchQueries(boType);
+    els.querySelect.innerHTML = "";
+    const ph = document.createElement("option");
+    ph.value = "";
+    ph.textContent = queries.length ? "Select a query…" : "No queries configured";
+    ph.disabled = true;
+    ph.selected = true;
+    els.querySelect.appendChild(ph);
+    for (const q of queries) {
+      const opt = document.createElement("option");
+      opt.value = q.id;
+      opt.textContent = q.name || q.id;
+      els.querySelect.appendChild(opt);
+    }
+    els.queryInputs.innerHTML = "";
+    setQueryStatus(null);
+    els.queryBar.hidden = queries.length === 0;
+  } catch {
+    els.queryBar.hidden = true;
+  }
+}
+
+async function renderQueryInputs(queryId) {
+  els.queryInputs.innerHTML = "";
+  setQueryStatus(null);
+  if (!queryId) return;
+  let meta = queryMetaCache[queryId];
+  if (!meta) {
+    try {
+      meta = await fetchQueryMetadata(queryId);
+      queryMetaCache[queryId] = meta;
+    } catch {
+      return;
+    }
+  }
+  for (const inp of meta.inputs || []) {
+    if (!inp || !inp.id) continue;
+    const wrap = document.createElement("div");
+    wrap.className = "hec__queryField";
+    const lbl = document.createElement("span");
+    lbl.className = "hec__queryLabel";
+    lbl.textContent = (inp.name || inp.id) + (inp.required ? " *" : "");
+    const row = document.createElement("div");
+    row.className = "hec__queryFieldRow";
+    const opSel = document.createElement("select");
+    opSel.className = "hec__select hec__queryOp";
+    const ops = inp.supportedOperators && inp.supportedOperators.length ? inp.supportedOperators : ["Contains"];
+    for (const op of ops) {
+      const o = document.createElement("option");
+      o.value = op;
+      o.textContent = friendlyOperator(op);
+      opSel.appendChild(o);
+    }
+    const val = document.createElement("input");
+    val.className = "manual__input";
+    val.type = "text";
+    val.placeholder = inp.name || inp.id;
+    val.dataset.fieldId = inp.id;
+    val.dataset.required = inp.required ? "1" : "";
+    if (inp.minLength != null) val.dataset.minLength = String(inp.minLength);
+    if (inp.maxLength != null) val.maxLength = Number(inp.maxLength);
+    row.append(opSel, val);
+    wrap.append(lbl, row);
+    els.queryInputs.appendChild(wrap);
+  }
+}
+
+// Single-field search for now: first filled input, with required/minLength validation.
+function collectQueryFilter() {
+  const inputs = els.queryInputs.querySelectorAll("input[data-field-id]");
+  for (const inp of inputs) {
+    const value = inp.value.trim();
+    const required = inp.dataset.required === "1";
+    const minLen = inp.dataset.minLength ? parseInt(inp.dataset.minLength, 10) : 0;
+    if (value) {
+      if (minLen && value.length < minLen) {
+        return { error: `${inp.placeholder}: entry is too short (min ${minLen}).` };
+      }
+      const op = inp.closest(".hec__queryFieldRow")?.querySelector(".hec__queryOp")?.value || "Contains";
+      return { filterFieldId: inp.dataset.fieldId, filterValue: value, filterOperator: op };
+    }
+    if (required) return { error: `${inp.placeholder} is required.` };
+  }
+  return { error: "Enter a search value." };
+}
+
+function setQueryStatus(msg, isError) {
+  if (!els.queryStatus) return;
+  if (!msg) {
+    els.queryStatus.hidden = true;
+    els.queryStatus.textContent = "";
+    return;
+  }
+  els.queryStatus.hidden = false;
+  els.queryStatus.textContent = msg;
+  els.queryStatus.classList.toggle("context__status--error", !!isError);
+}
+
+async function runQuery() {
+  const queryId = els.querySelect.value;
+  if (!queryId) {
+    setQueryStatus("Select a query first.", true);
+    return;
+  }
+  const boType = currentContext?.businessObjectType || els.contextType.textContent?.trim();
+  const boId = currentContext?.businessObjectId || els.uploadRecordId.value.trim();
+  const filter = collectQueryFilter();
+  if (filter.error) {
+    setQueryStatus(filter.error, true);
+    return;
+  }
+  els.queryRunBtn.disabled = true;
+  setQueryStatus("Searching…");
+  try {
+    const { documents } = await executeQuery({
+      businessObjectType: boType,
+      queryId,
+      businessObjectId: boId || null,
+      filterFieldId: filter.filterFieldId,
+      filterValue: filter.filterValue,
+      filterOperator: filter.filterOperator,
+    });
+    const meta = queryMetaCache[queryId];
+    const cols = (meta?.resultColumns || []).map((c) => c.name).filter(Boolean);
+    renderDocuments(documents, cols);
+    setQueryStatus(`${documents.length} result(s).`);
+    // A search is now showing — offer a way back to the default record list.
+    if (els.queryClearBtn) els.queryClearBtn.hidden = false;
+  } catch (err) {
+    setQueryStatus(err.message, true);
+  } finally {
+    els.queryRunBtn.disabled = false;
+  }
+}
+
+// Restores the default record document list after a query search.
+function clearQuerySearch() {
+  els.querySelect.value = "";
+  els.queryInputs.innerHTML = "";
+  setQueryStatus(null);
+  if (els.queryClearBtn) els.queryClearBtn.hidden = true;
+  loadContextPanel();
+}
+
+els.querySelect.addEventListener("change", () => renderQueryInputs(els.querySelect.value));
+els.queryRunBtn.addEventListener("click", runQuery);
+els.queryClearBtn?.addEventListener("click", clearQuerySearch);
+
 els.uploadBtn.addEventListener("click", async () => {
   const docType = els.uploadDocType.value.trim();
   const recordId = els.uploadRecordId.value.trim();
@@ -1302,15 +1582,15 @@ els.uploadBtn.addEventListener("click", async () => {
   try {
     // One button, correct store: Salesforce records go through the CIC upload/attach path,
     // Workday records go through the /bow capture path.
+    const meta = collectUploadMeta();
     const result = workday
-      ? await captureDocument(ctx, docType, pendingUploadFiles)
-      : await uploadDocuments(ctx, docType, pendingUploadFiles);
+      ? await captureDocument(ctx, docType, pendingUploadFiles, [], { additionalAttributes: meta })
+      : await uploadDocuments(ctx, docType, pendingUploadFiles, meta);
     const filed = (workday ? result.captured : result.uploaded) || [];
     const errors = result.errors || [];
     if (filed.length) {
       setUploadStatus(`Uploaded: ${filed.join(", ")}${errors.length ? ` (failed: ${errors.join("; ")})` : ""}`);
-      pendingUploadFiles = [];
-      renderUploadFiles();
+      resetUploadForm();
       // Refresh the document list so the new file appears.
       loadContextPanel();
     } else {
@@ -1346,8 +1626,8 @@ els.manualForm.addEventListener("submit", async (event) => {
   setContextStatus("Loading related content…");
 
   try {
-    const { documents } = await fetchContextDocuments(currentContext);
-    renderDocuments(documents);
+    const { documents, columns } = await fetchContextDocuments(currentContext);
+    renderDocuments(documents, columns);
   } catch (err) {
     setContextStatus(`Couldn't load related content: ${err.message}`);
     els.manualForm.hidden = false;
@@ -1381,8 +1661,8 @@ async function applyResolvedWorker(match) {
   setContextStatus(`Loaded ${match.name || "worker"} (WID ${wid}). Loading related content…`);
 
   try {
-    const { documents } = await fetchContextDocuments(currentContext);
-    renderDocuments(documents);
+    const { documents, columns } = await fetchContextDocuments(currentContext);
+    renderDocuments(documents, columns);
   } catch (err) {
     setContextStatus(`Couldn't load related content: ${err.message}`);
   }
@@ -1540,16 +1820,28 @@ els.form.addEventListener("submit", async (event) => {
     // Send the raw text plus the attached files. When the popup knows which record is on the
     // browser screen, append a target-record hint so uploads and questions apply to that object
     // without the user typing its id.
+    // Workday: the chatbot is scoped to the SIGNED-IN user (self) — "my documents" = the signed-in
+    // worker (arizzo), even when the panel is showing a subordinate. Other LOBs use the on-screen record.
+    const chatContext =
+      isWorkdayContext(currentContext) && selfWorker?.wid
+        ? {
+            businessObjectType: "employee",
+            businessObjectId: selfWorker.wid,
+            displayName: selfWorker.name || `employee ${selfWorker.wid}`,
+            source: "workday",
+            self: true,
+          }
+        : currentContext;
     let outgoing = text;
-    if (currentContext) {
+    if (chatContext) {
       const hint =
         `\n\n[Context — the user is viewing this record in the browser: ` +
-        `businessObjectType=${currentContext.businessObjectType}, ` +
-        `businessObjectId=${currentContext.businessObjectId}. ` +
+        `businessObjectType=${chatContext.businessObjectType}, ` +
+        `businessObjectId=${chatContext.businessObjectId}. ` +
         `Use these when listing or uploading documents for "this record".]`;
       outgoing = (text + hint).trim();
     }
-    const { reply } = await sendMessageToAgent(outgoing, files);
+    const { reply } = await sendMessageToAgent(outgoing, files, chatContext);
     typing.remove();
     addMessage(reply, "agent");
     // If the agent returned a viewer link, also open the document in the in-panel viewer.

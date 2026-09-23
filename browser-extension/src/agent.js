@@ -26,7 +26,7 @@ async function getConversationId() {
  * @param {File[]} [files]
  * @returns {Promise<{ reply: string }>}
  */
-export async function sendMessageToAgent(message, files = []) {
+export async function sendMessageToAgent(message, files = [], context = null) {
   const sessionId = await getSession();
   if (!sessionId) throw new Error("Not signed in.");
   const conversationId = await getConversationId();
@@ -39,7 +39,13 @@ export async function sendMessageToAgent(message, files = []) {
       "Content-Type": "application/json",
       "X-BFF-Session": sessionId,
     },
-    body: JSON.stringify({ message, conversationId, attachments }),
+    body: JSON.stringify({
+      message,
+      conversationId,
+      attachments,
+      businessObjectType: context?.businessObjectType ?? null,
+      businessObjectId: context?.businessObjectId ?? null,
+    }),
   });
 
   const data = await response.json().catch(() => ({}));
@@ -82,6 +88,7 @@ export async function fetchContextDocuments(context) {
     businessObjectType: data.businessObjectType ?? context.businessObjectType,
     businessObjectId: data.businessObjectId ?? context.businessObjectId,
     documents: Array.isArray(data.documents) ? data.documents : [],
+    columns: Array.isArray(data.columns) ? data.columns : null,
     raw: data.raw ?? "",
   };
 }
@@ -161,6 +168,107 @@ export async function fetchDocumentTypes() {
 }
 
 /**
+ * Lists the user-editable metadata fields for a document type (BFF /api/doctype-fields) so the
+ * upload form can render dynamic inputs. Returns [{ id, label }].
+ */
+export async function fetchDocTypeFields(docType, businessObjectType, businessObjectId, workday) {
+  const sessionId = await getSession();
+  if (!sessionId) throw new Error("Not signed in.");
+
+  const params = new URLSearchParams({ docType: docType || "" });
+  if (businessObjectType) params.set("businessObjectType", businessObjectType);
+  if (businessObjectId) params.set("businessObjectId", businessObjectId);
+  if (workday) params.set("workday", "true");
+
+  const response = await fetch(`${CONFIG.bff.baseUrl}/api/doctype-fields?${params.toString()}`, {
+    method: "GET",
+    headers: { "X-BFF-Session": sessionId },
+  });
+
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    const detail = data?.detail || data?.error || `HTTP ${response.status}`;
+    throw new Error(`Field lookup failed (${response.status}): ${detail}`);
+  }
+  return Array.isArray(data.fields) ? data.fields : [];
+}
+
+/**
+ * Lists the QUERIES configured for the given business object (BFF /api/queries?businessObjectType=...).
+ * When a business object is supplied the BFF returns only that object's configured queries (solution config
+ * queryConfig); otherwise it falls back to the system-wide list. Returns [{ id, name, type, default }].
+ */
+export async function fetchQueries(businessObjectType) {
+  const sessionId = await getSession();
+  if (!sessionId) throw new Error("Not signed in.");
+  const url = businessObjectType
+    ? `${CONFIG.bff.baseUrl}/api/queries?businessObjectType=${encodeURIComponent(businessObjectType)}`
+    : `${CONFIG.bff.baseUrl}/api/queries`;
+  const response = await fetch(url, {
+    method: "GET",
+    headers: { "X-BFF-Session": sessionId },
+  });
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    const detail = data?.detail || data?.error || `HTTP ${response.status}`;
+    throw new Error(`Queries lookup failed (${response.status}): ${detail}`);
+  }
+  // Per-object configured queries come back as data.queries; the system-wide fallback comes as data.raw.
+  if (Array.isArray(data.queries)) return data.queries;
+  try {
+    const parsed = JSON.parse(data.raw ?? "{}");
+    const queries = parsed?.data?.queries ?? parsed?.queries ?? [];
+    return Array.isArray(queries) ? queries : [];
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * Gets a query's metadata (BFF /api/query-metadata -> MCP get_query_metadata): searchable inputs (with
+ * validation + operators) and result columns. Returns { inputs: [...], resultColumns: [...] }.
+ */
+export async function fetchQueryMetadata(queryId) {
+  const sessionId = await getSession();
+  if (!sessionId) throw new Error("Not signed in.");
+  const response = await fetch(`${CONFIG.bff.baseUrl}/api/query-metadata?queryId=${encodeURIComponent(queryId)}`, {
+    method: "GET",
+    headers: { "X-BFF-Session": sessionId },
+  });
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    const detail = data?.detail || data?.error || `HTTP ${response.status}`;
+    throw new Error(`Query metadata failed (${response.status}): ${detail}`);
+  }
+  try {
+    const d = (JSON.parse(data.raw ?? "{}"))?.data ?? {};
+    return { inputs: Array.isArray(d.inputs) ? d.inputs : [], resultColumns: Array.isArray(d.resultColumns) ? d.resultColumns : [] };
+  } catch {
+    return { inputs: [], resultColumns: [] };
+  }
+}
+
+/**
+ * Runs a server-side query (keyword search) via BFF /api/query-execute -> MCP query_documents.
+ * Returns { documents: [...] }.
+ */
+export async function executeQuery({ businessObjectType, queryId, businessObjectId, filterFieldId, filterValue, filterOperator }) {
+  const sessionId = await getSession();
+  if (!sessionId) throw new Error("Not signed in.");
+  const response = await fetch(`${CONFIG.bff.baseUrl}/api/query-execute`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "X-BFF-Session": sessionId },
+    body: JSON.stringify({ businessObjectType, queryId, businessObjectId, filterFieldId, filterValue, filterOperator }),
+  });
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    const detail = data?.detail || data?.error || `HTTP ${response.status}`;
+    throw new Error(`Query failed (${response.status}): ${detail}`);
+  }
+  return { documents: Array.isArray(data.documents) ? data.documents : [] };
+}
+
+/**
  * Lists the ECM system configurations registered in this environment (CIC / OnBase / …) for the
  * onboarding picker. Returns { configs: [{friendlyName, systemType, description, isDefault, isActive}], active }.
  */
@@ -214,7 +322,7 @@ export async function setSystemConfig(friendlyName) {
  * @param {File[]} files
  * @returns {Promise<{ uploaded: string[], errors: string[] }>}
  */
-export async function uploadDocuments(context, docType, files) {
+export async function uploadDocuments(context, docType, files, additionalAttributes = []) {
   const sessionId = await getSession();
   if (!sessionId) throw new Error("Not signed in.");
 
@@ -231,6 +339,7 @@ export async function uploadDocuments(context, docType, files) {
       businessObjectId: context.businessObjectId,
       ecmContentTypeName: docType,
       attachments,
+      additionalAttributes: Array.isArray(additionalAttributes) ? additionalAttributes : [],
     }),
   });
 
@@ -273,6 +382,7 @@ export async function captureDocument(context, documentTypeId, files, businessOb
       businessObjectId: context?.businessObjectId || null,
       documentTypeId,
       businessObjectAttributes: Array.isArray(businessObjectAttributes) ? businessObjectAttributes : [],
+      additionalAttributes: Array.isArray(options?.additionalAttributes) ? options.additionalAttributes : [],
       documentId: options?.documentId || null,
       createNewVersion: Boolean(options?.createNewVersion),
       attachments,

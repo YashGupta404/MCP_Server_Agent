@@ -79,3 +79,30 @@ BFF restarted to apply (restart wipes sessions → re-sign-in in the panel).
   and today's BFF change are **local** (only affect our uploads/plugin).
 - **Productization:** end-user plugin should be **config-read-only**; config (import mapping + display
   columns) is an **admin/provisioning** step, not a runtime action exposed to users.
+
+---
+
+## 5. Deferred (future) — extend the "filename → Document column" trick to ALL doc types
+
+Considered replicating the Invoices recipe (store filename in a keyword + relabel that column to
+"Document") for **every** doc type of both LOBs. **Decision: NOT doing it now** — user will decide later.
+Reasons / constraints captured for when we revisit:
+
+- **Display is already type-agnostic** — `ParseDocumentList` picks the name from any name-like column
+  (`hfs_Name`/`Document`/`Name`/`Document Name`/`File Name`/`Title`) for any type/LOB. No change needed
+  there; the gap is only whether a **filename value** exists to show.
+- **Salesforce / CIC-native types:** already covered — the upload stamps `hfs_Name` with the filename for
+  every type that has it. Nothing to do.
+- **Salesforce / OnBase types:** each OnBase type has a **fixed keyword schema with no spare name field**.
+  Invoices worked only because we **sacrificed** the "Invoice #" field (229). Doing this per type means
+  **giving up one real keyword per type** (e.g. "COM - Application" would lose Loan Number or Entity Name).
+  Also the display relabel writes the **shared** solution config → affects everyone in that environment.
+- **Workday:** capture **broker rejected** a filename keyword with a **500** (proven earlier — e.g. "File
+  Name" keyword id 2, and 162). So the raw upload filename likely **can't be stored** on the Workday
+  config; it keeps its auto-name `"<Type> - <Date>"`. Would need per-field testing to confirm any keyword
+  accepts it.
+
+**If revisited:** (1) list each OnBase type's keyword fields, pick the least-important one to repurpose per
+type, add to `NameKeywordFieldByContentType`, relabel that type's query column; (2) test whether the
+Workday broker accepts any filename keyword; (3) prefer a proper name field per type over repurposing —
+and treat all of this as **admin/provisioning** config, not a runtime plugin action.

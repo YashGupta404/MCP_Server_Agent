@@ -9,7 +9,8 @@ Add-Type -AssemblyName System.Net.Http
 
 $mcp      = "http://localhost:5200"
 $endpoint = "$mcp/mcp"
-$apiKey   = "lo1uLULmaPHg5dKLJGvLGLd1j8hF/ZQ6T7lokyuxvlA="
+$apiKey = $env:MCP_API_KEY
+if (-not $apiKey) { throw "MCP_API_KEY not set. Run:  . `"$PSScriptRoot\load-mcp-key.ps1`"  first (loads it from dotnet user-secrets)." }
 
 $handler = New-Object System.Net.Http.HttpClientHandler
 $client  = New-Object System.Net.Http.HttpClient($handler)
