@@ -38,6 +38,7 @@ builder.Services.Configure<AuthOptions>(builder.Configuration.GetSection("Auth")
 builder.Services.Configure<AgentOptions>(builder.Configuration.GetSection("Agent"));
 builder.Services.Configure<McpOptions>(builder.Configuration.GetSection("Mcp"));
 builder.Services.Configure<WorkdayOptions>(builder.Configuration.GetSection("Workday"));
+builder.Services.Configure<IdpOptions>(builder.Configuration.GetSection("Idp"));
 builder.Services.AddHttpClient();
 builder.Services.AddSingleton<SessionStore>();
 
@@ -55,6 +56,9 @@ var auth = app.Services.GetRequiredService<IOptions<AuthOptions>>().Value;
 var agent = app.Services.GetRequiredService<IOptions<AgentOptions>>().Value;
 var mcp = app.Services.GetRequiredService<IOptions<McpOptions>>().Value;
 var workday = app.Services.GetRequiredService<IOptions<WorkdayOptions>>().Value;
+var idp = app.Services.GetRequiredService<IOptions<IdpOptions>>().Value;
+// Staged file bytes IDP's cloud service fetches via GET /api/idp/file/{id} (the classification sourceUrl).
+var idpFiles = new ConcurrentDictionary<string, (byte[] Bytes, string Mime, string Name)>();
 var sessions = app.Services.GetRequiredService<SessionStore>();
 var httpFactory = app.Services.GetRequiredService<IHttpClientFactory>();
 var workdayTokens = new WorkdayTokenCache();
@@ -1004,6 +1008,232 @@ app.MapPost("/api/capture", async (HttpContext ctx, CaptureRequest req) =>
     return Results.Json(new { captured, errors });
 });
 
+// ---------- IDP auto-classification (Option C: BFF reads a cached IDP token) ----------
+// IDP's cloud service can't reach localhost, so each uploaded file's bytes are staged in-memory and
+// served PUBLICLY (no session) at GET /api/idp/file/{id}. The sourceUrl we hand IDP is
+// {Idp:PublicBaseUrl}/api/idp/file/{id} — Idp:PublicBaseUrl is a devtunnel pointing at this BFF.
+app.MapGet("/api/idp/file/{id}", (string id) =>
+{
+    if (idpFiles.TryGetValue(id, out var f))
+        return Results.File(f.Bytes, string.IsNullOrWhiteSpace(f.Mime) ? "application/octet-stream" : f.Mime, f.Name);
+    return Results.NotFound();
+});
+
+// Lightweight readiness probe so the panel can show whether IDP is usable (token cached + public host set).
+app.MapGet("/api/idp/status", async (HttpContext ctx) =>
+{
+    var sessionId = ctx.Request.Headers["X-BFF-Session"].ToString();
+    if (string.IsNullOrEmpty(sessionId) || !sessions.TryGet(sessionId, out _))
+        return Results.Json(new { error = "not_authenticated" }, statusCode: 401);
+    using var sCts = new CancellationTokenSource(TimeSpan.FromSeconds(25));
+    var token = await IdpClient.GetTokenAsync(httpFactory, idp, log, sCts.Token);
+    return Results.Json(new
+    {
+        connected = token is not null,
+        publicHost = !string.IsNullOrWhiteSpace(idp.PublicBaseUrl),
+    });
+});
+
+// Classifies each attached file against the active system's document types and returns the detected
+// doc type + confidence per file. Does NOT upload anything — the panel pre-fills the review grid and
+// the user still clicks Upload (existing /api/capture or /api/upload path).
+app.MapPost("/api/idp/classify", async (HttpContext ctx, IdpClassifyRequest req) =>
+{
+    var sessionId = ctx.Request.Headers["X-BFF-Session"].ToString();
+    if (string.IsNullOrEmpty(sessionId) || !sessions.TryGet(sessionId, out _))
+        return Results.Json(new { error = "not_authenticated" }, statusCode: 401);
+
+    if (req.Attachments is not { Length: > 0 })
+        return Results.Json(new { error = "no_file", detail = "Attach at least one file to classify." }, statusCode: 400);
+
+    string? token;
+    using (var tokCts = new CancellationTokenSource(TimeSpan.FromSeconds(25)))
+        token = await IdpClient.GetTokenAsync(httpFactory, idp, log, tokCts.Token);
+    if (token is null)
+        return Results.Json(new { error = "idp_not_connected", detail = "No valid IDP token and silent refresh failed. Run bff/idp-feature-test.ps1 to sign in to IDP, then retry." }, statusCode: 401);
+
+    if (string.IsNullOrWhiteSpace(idp.PublicBaseUrl))
+        return Results.Json(new { error = "idp_host_not_configured", detail = "Idp:PublicBaseUrl is not set. Point a devtunnel at this BFF and set Idp:PublicBaseUrl." }, statusCode: 500);
+
+    // Candidate classes = the active system's document types (name == class == returned className, 1:1).
+    List<string> docTypes;
+    try
+    {
+        using var dtCts = new CancellationTokenSource(TimeSpan.FromSeconds(30));
+        var text = await McpJsonRpc.CallToolAsync(httpFactory, mcp, "list_document_types", new { }, log, dtCts.Token);
+        docTypes = McpJsonRpc.ParseDocumentTypes(text).Where(t => !string.IsNullOrWhiteSpace(t)).Distinct().ToList();
+    }
+    catch (Exception ex)
+    {
+        log.LogError(ex, "/api/idp/classify: could not list document types");
+        return Results.Json(new { error = "doctypes_failed", detail = ex.Message }, statusCode: 502);
+    }
+    if (docTypes.Count == 0)
+        return Results.Json(new { error = "no_doctypes", detail = "The active system has no document types to classify against." }, statusCode: 400);
+
+    var publicBase = idp.PublicBaseUrl.TrimEnd('/');
+    var boType = req.BusinessObjectType;
+    var stagedIds = new System.Collections.Concurrent.ConcurrentBag<string>();
+    // Classify (and extract metadata for) files CONCURRENTLY (capped) so a bulk drop isn't paced one-at-a-time.
+    const int maxConcurrency = 6;
+    using var gate = new SemaphoreSlim(maxConcurrency);
+
+    // Memoize each doc type's field list (id+label+importable) so we fetch the solution config once per type.
+    var fieldCache = new System.Collections.Concurrent.ConcurrentDictionary<string, Task<List<(string Id, string Name, bool Importable)>>>(StringComparer.OrdinalIgnoreCase);
+    Task<List<(string Id, string Name, bool Importable)>> FieldsFor(string docType) => fieldCache.GetOrAdd(docType, dt => Task.Run(async () =>
+    {
+        var list = new List<(string Id, string Name, bool Importable)>();
+        try
+        {
+            using var fcts = new CancellationTokenSource(TimeSpan.FromSeconds(30));
+            var arr = await McpJsonRpc.GetCicDocTypeFieldsAsync(httpFactory, mcp, dt, boType, log, fcts.Token);
+            foreach (var o in arr)
+            {
+                var jn = JsonNode.Parse(JsonSerializer.Serialize(o));
+                var fid = jn?["id"]?.ToString();
+                var label = jn?["label"]?.ToString();
+                var importable = jn?["importable"]?.GetValue<bool>() ?? true;
+                if (!string.IsNullOrWhiteSpace(fid))
+                    list.Add((fid!, string.IsNullOrWhiteSpace(label) ? fid! : label!, importable));
+            }
+        }
+        catch (Exception ex) { log.LogWarning(ex, "/api/idp/classify: fields fetch failed for {DocType}", dt); }
+        return list;
+    }));
+
+    // Which of the active system's types can actually be filed on THIS record (for upload gating).
+    HashSet<string>? configuredTypes = null;
+    if (!string.IsNullOrWhiteSpace(boType))
+    {
+        using var cfgCts = new CancellationTokenSource(TimeSpan.FromSeconds(30));
+        configuredTypes = await McpJsonRpc.GetConfiguredCicContentTypesAsync(httpFactory, mcp, boType, log, cfgCts.Token);
+    }
+    // Classify against the record's CONFIGURED types so a document lands on an uploadable type with metadata
+    // (e.g. "Invoices", which is configured), not a bare near-name match (e.g. "Invoice", not configured here).
+    // Fall back to all system types when there's no record context / nothing configured.
+    var candidateTypes = (configuredTypes != null && configuredTypes.Count > 0) ? configuredTypes.ToList() : docTypes;
+
+    // Enrich each class description with its metadata field labels so cryptic type names (e.g.
+    // "COM - Application" -> fields "Loan Number") are understood by the classifier, not just matched by name.
+    var candidateClasses = new List<(string Name, string Description)>();
+    foreach (var t in candidateTypes)
+    {
+        List<(string Id, string Name, bool Importable)> defs;
+        try { defs = await FieldsFor(t); } catch { defs = new List<(string, string, bool)>(); }
+        var labels = defs.Select(d => d.Name).Where(n => !string.IsNullOrWhiteSpace(n)).Distinct().Take(8).ToList();
+        var desc = labels.Count > 0
+            ? $"A '{t}' document. Typical fields include: {string.Join(", ", labels)}."
+            : $"A '{t}' document.";
+        candidateClasses.Add((t, desc));
+    }
+
+    var attachments = req.Attachments!.Where(a => a is not null && !string.IsNullOrWhiteSpace(a.DataBase64)).ToList();
+    object[] results;
+    try
+    {
+        var tasks = attachments.Select(async att =>
+        {
+            var name = string.IsNullOrWhiteSpace(att.Name) ? "upload" : Path.GetFileName(att.Name);
+            byte[] bytes;
+            try { bytes = Convert.FromBase64String(att.DataBase64); }
+            catch { return (object)new { name, docType = (string?)null, confidence = 0.0, reviewRequired = true, error = "invalid file data", fields = Array.Empty<object>(), uploadable = false }; }
+
+            var id = Guid.NewGuid().ToString("N");
+            idpFiles[id] = (bytes, string.IsNullOrWhiteSpace(att.Mime) ? "application/octet-stream" : att.Mime!, name);
+            stagedIds.Add(id);
+            var sourceUrl = $"{publicBase}/api/idp/file/{id}";
+
+            await gate.WaitAsync();
+            try
+            {
+                using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(180));
+                var (docType, confidence, reviewRequired, error) =
+                    await IdpClient.ClassifyAsync(httpFactory, idp, token, sourceUrl, candidateClasses, log, cts.Token);
+                if (error is not null)
+                    log.LogWarning("/api/idp/classify: {Name} -> {Error}", name, error);
+
+                // If we got a type (and a record context), extract that type's metadata values in the same pass.
+                object[] fields = Array.Empty<object>();
+                if (!string.IsNullOrWhiteSpace(docType) && !string.IsNullOrWhiteSpace(boType))
+                {
+                    var defs = await FieldsFor(docType!);
+                    if (defs.Count > 0)
+                    {
+                        var (vals, exErr) = await IdpClient.ExtractAsync(httpFactory, idp, token, sourceUrl,
+                            defs.Select(d => (d.Id, d.Name)).ToList(), log, cts.Token);
+                        if (exErr is not null) log.LogWarning("/api/idp/classify: extract {Name} -> {Error}", name, exErr);
+                        fields = vals.Select(v =>
+                        {
+                            bool imp = true;
+                            foreach (var d in defs)
+                                if (string.Equals(d.Id, v.Id, StringComparison.OrdinalIgnoreCase)) { imp = d.Importable; break; }
+                            return (object)new { id = v.Id, name = v.Name, value = v.Value, confidence = Math.Round(v.Confidence, 4), reviewRequired = v.ReviewRequired, importable = imp };
+                        }).ToArray();
+                    }
+                }
+                return (object)new { name, docType, confidence = Math.Round(confidence, 4), reviewRequired, error, fields, uploadable = configuredTypes == null || (docType != null && configuredTypes.Contains(docType)) };
+            }
+            finally { gate.Release(); }
+        });
+        results = await Task.WhenAll(tasks);
+    }
+    finally
+    {
+        // The files only need to be reachable during classification/extraction; drop the bytes afterwards.
+        foreach (var id in stagedIds) idpFiles.TryRemove(id, out _);
+    }
+
+    return Results.Json(new { results });
+});
+
+// ---------- IDP metadata extraction (recognition -> extraction) for one file + a set of fields ----------
+// Returns the extracted value (+ confidence) per requested field so the panel can pre-fill the metadata inputs.
+app.MapPost("/api/idp/extract", async (HttpContext ctx, IdpExtractRequest req) =>
+{
+    var sessionId = ctx.Request.Headers["X-BFF-Session"].ToString();
+    if (string.IsNullOrEmpty(sessionId) || !sessions.TryGet(sessionId, out _))
+        return Results.Json(new { error = "not_authenticated" }, statusCode: 401);
+
+    if (req.Attachment is null || string.IsNullOrWhiteSpace(req.Attachment.DataBase64))
+        return Results.Json(new { error = "no_file", detail = "Attach a file to extract from." }, statusCode: 400);
+    if (req.Fields is not { Length: > 0 })
+        return Results.Json(new { error = "no_fields", detail = "No fields to extract." }, statusCode: 400);
+
+    string? token;
+    using (var tokCts = new CancellationTokenSource(TimeSpan.FromSeconds(25)))
+        token = await IdpClient.GetTokenAsync(httpFactory, idp, log, tokCts.Token);
+    if (token is null)
+        return Results.Json(new { error = "idp_not_connected", detail = "No valid IDP token and silent refresh failed. Run bff/idp-feature-test.ps1 to sign in to IDP, then retry." }, statusCode: 401);
+    if (string.IsNullOrWhiteSpace(idp.PublicBaseUrl))
+        return Results.Json(new { error = "idp_host_not_configured", detail = "Idp:PublicBaseUrl is not set." }, statusCode: 500);
+
+    byte[] bytes;
+    try { bytes = Convert.FromBase64String(req.Attachment.DataBase64); }
+    catch { return Results.Json(new { error = "bad_file", detail = "Invalid file data." }, statusCode: 400); }
+
+    var id = Guid.NewGuid().ToString("N");
+    idpFiles[id] = (bytes, string.IsNullOrWhiteSpace(req.Attachment.Mime) ? "application/octet-stream" : req.Attachment.Mime!, string.IsNullOrWhiteSpace(req.Attachment.Name) ? "upload" : req.Attachment.Name!);
+    var sourceUrl = $"{idp.PublicBaseUrl.TrimEnd('/')}/api/idp/file/{id}";
+
+    try
+    {
+        var wanted = req.Fields!.Select(f => (f.Id, f.Name)).ToList();
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(120));
+        var (fields, error) = await IdpClient.ExtractAsync(httpFactory, idp, token, sourceUrl, wanted, log, cts.Token);
+        if (error is not null)
+            log.LogWarning("/api/idp/extract: {Error}", error);
+        return Results.Json(new
+        {
+            fields = fields.Select(f => new { id = f.Id, name = f.Name, value = f.Value, confidence = Math.Round(f.Confidence, 4), reviewRequired = f.ReviewRequired }),
+            error,
+        });
+    }
+    finally
+    {
+        idpFiles.TryRemove(id, out _);
+    }
+});
+
 // ---------- Open a document in the Hyland viewer (deterministic; returns the viewer URL) ----------
 app.MapPost("/api/viewer", async (HttpContext ctx, ViewerRequest req) =>
 {
@@ -1688,6 +1918,34 @@ static class McpJsonRpc
         }
     }
 
+    // Returns the set of content types that are CONFIGURED (uploadable) for a business object, from the
+    // solution config's additionalConfig. A doc type not in this set can't be filed on that record type.
+    public static async Task<HashSet<string>> GetConfiguredCicContentTypesAsync(
+        IHttpClientFactory httpFactory, McpOptions mcp, string? boType, ILogger log, CancellationToken ct)
+    {
+        var set = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        try
+        {
+            var text = await CallToolAsync(httpFactory, mcp, "get_solution_configurations", new { }, log, ct);
+            using var doc = JsonDocument.Parse(text);
+            var data = doc.RootElement.TryGetProperty("data", out var d) ? d : doc.RootElement;
+            if (data.TryGetProperty("configurations", out var confs) &&
+                confs.TryGetProperty("businessObjectConfig", out var boc) &&
+                boc.TryGetProperty("additionalConfig", out var addl) && addl.ValueKind == JsonValueKind.Array)
+            {
+                foreach (var entry in addl.EnumerateArray())
+                {
+                    var bo = entry.TryGetProperty("busObject", out var b) ? b.GetString() : null;
+                    if (!string.IsNullOrWhiteSpace(boType) && !string.Equals(bo, boType, StringComparison.OrdinalIgnoreCase)) continue;
+                    var tn = entry.TryGetProperty("ecmContentTypeName", out var t) ? t.GetString() : null;
+                    if (!string.IsNullOrWhiteSpace(tn)) set.Add(tn!);
+                }
+            }
+        }
+        catch (Exception ex) { log.LogWarning(ex, "GetConfiguredCicContentTypesAsync failed for {BoType}", boType); }
+        return set;
+    }
+
     // Returns the user-editable metadata fields for a CIC/Salesforce content type from the solution
     // config: additionalConfig[type].ecmMetadataFieldLabels, minus the auto-mapped
     // (metadataFieldImportMappings) fields. Shape: [{ id, label }].
@@ -1715,35 +1973,62 @@ static class McpJsonRpc
                     && b.GetString() is { Length: > 0 } bo
                     && !string.Equals(bo, boType, StringComparison.OrdinalIgnoreCase)) continue;
 
-                // Exclude only the record-scoping field (inputSource == "1"), which is auto-filled from the
-                // record; every other labeled field is user-editable metadata. (For OnBase types ALL fields
-                // appear in metadataFieldImportMappings, so excluding all of them would leave nothing.)
+                // Friendly display labels (ecmColumnId -> ecmColumnName), used when available.
+                var labelById = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+                if (entry.TryGetProperty("ecmMetadataFieldLabels", out var labels) && labels.ValueKind == JsonValueKind.Array)
+                    foreach (var l in labels.EnumerateArray())
+                    {
+                        var lid = l.TryGetProperty("ecmColumnId", out var ci) ? ci.GetString() : null;
+                        var lname = l.TryGetProperty("ecmColumnName", out var cn) ? cn.GetString() : null;
+                        if (!string.IsNullOrWhiteSpace(lid))
+                            labelById[lid!] = string.IsNullOrWhiteSpace(lname) ? lid! : lname!;
+                    }
+
+                // Partition import mappings by how the value is sourced:
+                //  inputSource 1-5 = auto-populated (record / static / username / filename / filetype) — not user-editable.
+                //  inputSource 6   = caller-provided — the field the user/IDP fills and UCEB stores.
                 var autoIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                var importableIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
                 if (entry.TryGetProperty("metadataFieldImportMappings", out var mm) && mm.ValueKind == JsonValueKind.Array)
                     foreach (var m in mm.EnumerateArray())
                     {
                         var src = m.TryGetProperty("inputSource", out var isrc)
-                            ? (isrc.ValueKind == JsonValueKind.String ? isrc.GetString() : isrc.ToString())
-                            : null;
-                        if (src == "1" && m.TryGetProperty("ecmFieldName", out var fn) && fn.GetString() is { Length: > 0 } fns)
-                            autoIds.Add(fns);
+                            ? (isrc.ValueKind == JsonValueKind.String ? isrc.GetString() : isrc.ToString()) : null;
+                        var fid = m.TryGetProperty("ecmFieldName", out var fn) ? fn.GetString() : null;
+                        if (string.IsNullOrWhiteSpace(fid)) continue;
+                        if (src == "6") importableIds.Add(fid!); else autoIds.Add(fid!);
                     }
 
-                if (entry.TryGetProperty("ecmMetadataFieldLabels", out var labels) && labels.ValueKind == JsonValueKind.Array)
+                // Return importable fields first (these actually persist), then display-only fields (shown +
+                // IDP-extractable as a preview, but not stored on upload in this config). importable flags it.
+                var emitted = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                foreach (var fid in importableIds)
                 {
-                    foreach (var l in labels.EnumerateArray())
-                    {
-                        var id = l.TryGetProperty("ecmColumnId", out var ci) ? ci.GetString() : null;
-                        var label = l.TryGetProperty("ecmColumnName", out var cn) ? cn.GetString() : null;
-                        if (string.IsNullOrWhiteSpace(id) || autoIds.Contains(id!)) continue;
-                        fields.Add(new { id, label = string.IsNullOrWhiteSpace(label) ? id : label });
-                    }
+                    if (autoIds.Contains(fid) || !emitted.Add(fid)) continue;
+                    var label = labelById.TryGetValue(fid, out var lbl) ? lbl : HumanizeFieldId(fid);
+                    fields.Add(new { id = fid, label, importable = true });
+                }
+                foreach (var kv in labelById)
+                {
+                    if (autoIds.Contains(kv.Key) || importableIds.Contains(kv.Key) || !emitted.Add(kv.Key)) continue;
+                    fields.Add(new { id = kv.Key, label = kv.Value, importable = false });
                 }
                 break;
             }
         }
         catch (JsonException ex) { log.LogWarning(ex, "GetCicDocTypeFieldsAsync: parse failed"); }
         return fields.ToArray();
+    }
+
+    // Turns a raw field id (e.g. "hfs_MedicationName") into a readable label ("Medication Name"),
+    // used when the solution config has no friendly ecmColumnName for an importable field.
+    static string HumanizeFieldId(string id)
+    {
+        var s = id;
+        if (s.StartsWith("hfs_", StringComparison.OrdinalIgnoreCase)) s = s.Substring(4);
+        s = s.Replace('_', ' ').Replace('-', ' ');
+        s = System.Text.RegularExpressions.Regex.Replace(s, "(?<=[a-z0-9])(?=[A-Z])", " ");
+        return System.Globalization.CultureInfo.CurrentCulture.TextInfo.ToTitleCase(s.Trim().ToLowerInvariant());
     }
 
     // Returns the user-editable capture fields for a Workday document type from
@@ -2255,10 +2540,355 @@ sealed class WorkdayOptions
     public string Scope { get; set; } = "";
 }
 
+sealed class IdpOptions
+{
+    // IDP (Intelligent Document Processing) REST API base, e.g. https://api.idp.staging.app.hyland.com.
+    public string BaseUrl { get; set; } = "https://api.idp.staging.app.hyland.com";
+    // General Purpose zero-shot classification execution profile (name=class, inline definitions).
+    public string ClassificationProfileId { get; set; } = "078abc02-212b-42fa-92fb-f42edd6bb42d";
+    public string ClassificationProfileVersion { get; set; } = "3.0";
+    // Recognition (OCR) "Core Profile" — required before extraction.
+    public string RecognitionProfileId { get; set; } = "fe81797f-2d99-450a-92f1-fe4cde5bfc79";
+    public string RecognitionProfileVersion { get; set; } = "1.0";
+    // Publicly reachable base URL of THIS BFF (e.g. a devtunnel) so IDP's cloud service can fetch
+    // the staged file bytes as the classification sourceUrl. Empty => classify is disabled.
+    public string PublicBaseUrl { get; set; } = "";
+    // File the IDP bearer token is read from (Option C demo: produced by bff/idp-feature-test.ps1).
+    // Empty => %TEMP%/idp_token.txt.
+    public string TokenFile { get; set; } = "";
+    // For silent auto-refresh when the token expires (no browser): the saved refresh token file +
+    // the IDP app credentials + token endpoint. ClientId/ClientSecret come from user-secrets.
+    public string RefreshTokenFile { get; set; } = "";
+    public string TokenEndpoint { get; set; } = "https://auth.staging.app.hyland.com/idp/connect/token";
+    public string ClientId { get; set; } = "";
+    public string ClientSecret { get; set; } = "";
+}
+
+// Talks to the Hyland IDP classification REST API. Option C for the demo: the BFF reads a cached IDP
+// bearer token from disk (minted by the local authorization_code login in bff/idp-feature-test.ps1).
+static class IdpClient
+{
+    static string TokenPath(IdpOptions idp) =>
+        string.IsNullOrWhiteSpace(idp.TokenFile) ? Path.Combine(Path.GetTempPath(), "idp_token.txt") : idp.TokenFile;
+
+    // Reads the cached IDP token and returns it only if present and not expired (JWT exp claim).
+    public static string? ReadToken(IdpOptions idp, ILogger log)
+    {
+        try
+        {
+            var path = TokenPath(idp);
+            if (!File.Exists(path)) return null;
+            var token = File.ReadAllText(path).Trim();
+            if (string.IsNullOrWhiteSpace(token)) return null;
+            var parts = token.Split('.');
+            if (parts.Length >= 2)
+            {
+                var payloadJson = Encoding.UTF8.GetString(Base64UrlBytes(parts[1]));
+                var payload = JsonNode.Parse(payloadJson);
+                var exp = payload?["exp"]?.GetValue<long>();
+                if (exp is long e && DateTimeOffset.FromUnixTimeSeconds(e) <= DateTimeOffset.UtcNow.AddSeconds(30))
+                    return null; // expired (or about to)
+            }
+            return token;
+        }
+        catch (Exception ex)
+        {
+            log.LogWarning(ex, "[idp] could not read cached token");
+            return null;
+        }
+    }
+
+    static byte[] Base64UrlBytes(string input)
+    {
+        string s = input.Replace('-', '+').Replace('_', '/');
+        switch (s.Length % 4) { case 2: s += "=="; break; case 3: s += "="; break; }
+        return Convert.FromBase64String(s);
+    }
+
+    // Returns a valid IDP bearer token: the cached one if still valid, otherwise SILENTLY refreshes it
+    // using the saved refresh token (no browser, no :5005). Returns null if neither works.
+    public static async Task<string?> GetTokenAsync(IHttpClientFactory factory, IdpOptions idp, ILogger log, CancellationToken ct)
+    {
+        var token = ReadToken(idp, log);
+        if (token is not null) return token;
+        return await RefreshAsync(factory, idp, log, ct);
+    }
+
+    static async Task<string?> RefreshAsync(IHttpClientFactory factory, IdpOptions idp, ILogger log, CancellationToken ct)
+    {
+        try
+        {
+            var refreshPath = string.IsNullOrWhiteSpace(idp.RefreshTokenFile)
+                ? Path.Combine(Path.GetTempPath(), "idp_refresh.txt") : idp.RefreshTokenFile;
+            if (!File.Exists(refreshPath)) return null;
+            var refresh = File.ReadAllText(refreshPath).Trim();
+            if (string.IsNullOrWhiteSpace(refresh)) return null;
+            if (string.IsNullOrWhiteSpace(idp.ClientId) || string.IsNullOrWhiteSpace(idp.ClientSecret))
+            {
+                log.LogWarning("[idp] cannot auto-refresh: Idp:ClientId / Idp:ClientSecret not configured");
+                return null;
+            }
+
+            var http = factory.CreateClient();
+            http.Timeout = TimeSpan.FromSeconds(25);
+            using var form = new FormUrlEncodedContent(new Dictionary<string, string>
+            {
+                ["grant_type"] = "refresh_token",
+                ["refresh_token"] = refresh,
+                ["client_id"] = idp.ClientId,
+                ["client_secret"] = idp.ClientSecret,
+            });
+            using var resp = await http.PostAsync(idp.TokenEndpoint, form, ct);
+            var body = await resp.Content.ReadAsStringAsync(ct);
+            if (!resp.IsSuccessStatusCode)
+            {
+                log.LogWarning("[idp] auto-refresh failed ({Status})", (int)resp.StatusCode);
+                return null;
+            }
+            var node = JsonNode.Parse(body);
+            var access = node?["access_token"]?.ToString();
+            if (string.IsNullOrWhiteSpace(access)) return null;
+            File.WriteAllText(TokenPath(idp), access);
+            var newRefresh = node?["refresh_token"]?.ToString();
+            if (!string.IsNullOrWhiteSpace(newRefresh)) File.WriteAllText(refreshPath, newRefresh); // tokens rotate
+            log.LogInformation("[idp] access token auto-refreshed silently via refresh_token");
+            return access;
+        }
+        catch (Exception ex)
+        {
+            log.LogWarning(ex, "[idp] silent auto-refresh error");
+            return null;
+        }
+    }
+
+    // Classifies one document (fetched by IDP from sourceUrl) against the inline candidate classes.
+    // Returns the winning className (== the doc type, 1:1), its confidence, and whether review is advised.
+    public static async Task<(string? DocType, double Confidence, bool ReviewRequired, string? Error)> ClassifyAsync(
+        IHttpClientFactory factory, IdpOptions idp, string token, string sourceUrl,
+        IReadOnlyList<(string Name, string Description)> candidateClasses, ILogger log, CancellationToken ct)
+    {
+        var http = factory.CreateClient();
+        http.Timeout = TimeSpan.FromSeconds(60);
+        var baseUrl = idp.BaseUrl.TrimEnd('/');
+
+        var classes = candidateClasses
+            .Where(c => !string.IsNullOrWhiteSpace(c.Name))
+            .Select(c => new
+            {
+                id = Guid.NewGuid().ToString(),
+                name = c.Name,
+                description = string.IsNullOrWhiteSpace(c.Description) ? $"A '{c.Name}' document." : c.Description,
+                ignoreForAuto = false,
+            }).ToArray();
+
+        var body = new
+        {
+            correlationId = Guid.NewGuid().ToString(),
+            configuration = new
+            {
+                executionProfile = new { profileId = idp.ClassificationProfileId, versionId = idp.ClassificationProfileVersion },
+                documentClassDefinitions = classes,
+                treatEachFileAsDocument = true,
+                includeClassCandidateReasoning = true,
+                reviewThreshold = 0.7,
+                // Relaxed so a clearly-correct doc with a cryptic class name isn't rejected over a few points.
+                classAssignmentThreshold = 0.6,
+                classCandidatesMinDistance = 0.05,
+                pageLimit = 10,
+            },
+            contentFileReferences = new[] { new { fileReference = Guid.NewGuid().ToString(), sourceUrl } },
+        };
+
+        async Task<HttpResponseMessage> SendAsync(HttpMethod method, string url, object? payload)
+        {
+            var msg = new HttpRequestMessage(method, url);
+            msg.Headers.TryAddWithoutValidation("Authorization", $"Bearer {token}");
+            if (payload is not null)
+                msg.Content = new StringContent(JsonSerializer.Serialize(payload), Encoding.UTF8, "application/json");
+            return await http.SendAsync(msg, ct);
+        }
+
+        string? jobId;
+        using (var resp = await SendAsync(HttpMethod.Post, $"{baseUrl}/api/classification", body))
+        {
+            var text = await resp.Content.ReadAsStringAsync(ct);
+            if (!resp.IsSuccessStatusCode)
+                return (null, 0, false, $"classification submit failed ({(int)resp.StatusCode}): {text}");
+            jobId = JsonNode.Parse(text)?["jobId"]?.GetValue<string>();
+        }
+        if (string.IsNullOrWhiteSpace(jobId))
+            return (null, 0, false, "no jobId returned");
+
+        // Poll status until the job leaves the processing states (or we give up).
+        for (int i = 0; i < 20; i++)
+        {
+            await Task.Delay(1500, ct);
+            using var sResp = await SendAsync(HttpMethod.Get, $"{baseUrl}/api/classification/job/status?jobId={jobId}", null);
+            var sText = await sResp.Content.ReadAsStringAsync(ct);
+            var status = JsonNode.Parse(sText)?["jobStatus"]?.GetValue<string>();
+            if (!string.IsNullOrWhiteSpace(status) &&
+                status.IndexOf("Succeeded", StringComparison.OrdinalIgnoreCase) >= 0)
+                break;
+            if (!string.IsNullOrWhiteSpace(status) &&
+                (status.IndexOf("Failed", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                 status.IndexOf("Error", StringComparison.OrdinalIgnoreCase) >= 0))
+                return (null, 0, false, $"classification job {status}");
+        }
+
+        using var rResp = await SendAsync(HttpMethod.Get, $"{baseUrl}/api/classification?jobId={jobId}", null);
+        var rText = await rResp.Content.ReadAsStringAsync(ct);
+        if (!rResp.IsSuccessStatusCode)
+            return (null, 0, false, $"classification result failed ({(int)rResp.StatusCode}): {rText}");
+        try
+        {
+            var doc = JsonNode.Parse(rText)?["documents"]?.AsArray()?.FirstOrDefault();
+            var className = doc?["className"]?.GetValue<string>();
+            var confidence = doc?["confidence"]?.GetValue<double>() ?? 0;
+            var reviewStatus = doc?["reviewStatus"]?.GetValue<string>() ?? "";
+            var reviewRequired = !reviewStatus.Equals("ReviewNotRequired", StringComparison.OrdinalIgnoreCase);
+            if (string.IsNullOrWhiteSpace(className) || className.Equals("Undefined", StringComparison.OrdinalIgnoreCase))
+                return (null, confidence, true, null);
+            return (className, confidence, reviewRequired, null);
+        }
+        catch (Exception ex)
+        {
+            return (null, 0, false, $"could not parse result: {ex.Message}");
+        }
+    }
+
+    public sealed record ExtractedField(string Id, string Name, string Value, double Confidence, bool ReviewRequired);
+
+    // Recognizes (OCR) the document then extracts values for the given fields (recognition is a required
+    // first pass; extraction reuses the SAME correlationId + fileReference). Returns the field values.
+    public static async Task<(List<ExtractedField> Fields, string? Error)> ExtractAsync(
+        IHttpClientFactory factory, IdpOptions idp, string token, string sourceUrl,
+        IReadOnlyList<(string Id, string Name)> fields, ILogger log, CancellationToken ct)
+    {
+        var http = factory.CreateClient();
+        http.Timeout = TimeSpan.FromSeconds(90);
+        var baseUrl = idp.BaseUrl.TrimEnd('/');
+        var correlationId = Guid.NewGuid().ToString();
+        var fileReference = Guid.NewGuid().ToString();
+        var classId = Guid.NewGuid().ToString();
+        var empty = new List<ExtractedField>();
+
+        async Task<HttpResponseMessage> SendAsync(HttpMethod method, string url, object? payload)
+        {
+            var msg = new HttpRequestMessage(method, url);
+            msg.Headers.TryAddWithoutValidation("Authorization", $"Bearer {token}");
+            if (payload is not null)
+                msg.Content = new StringContent(JsonSerializer.Serialize(payload), Encoding.UTF8, "application/json");
+            return await http.SendAsync(msg, ct);
+        }
+
+        // 1) Recognition (OCR). `actions` is a single enum string; 202 with an empty body.
+        using (var rec = await SendAsync(HttpMethod.Post, $"{baseUrl}/api/recognition/file",
+            new { correlationId, fileReference, sourceUrl, actions = "Ocr" }))
+        {
+            if (!rec.IsSuccessStatusCode)
+                return (empty, $"recognition submit failed ({(int)rec.StatusCode})");
+        }
+        // Poll the recognition result by correlationId + fileReference (NOT a jobId).
+        bool recognized = false;
+        for (int i = 0; i < 20; i++)
+        {
+            await Task.Delay(1500, ct);
+            using var rs = await SendAsync(HttpMethod.Get,
+                $"{baseUrl}/api/recognition/file/metadata?correlationId={correlationId}&fileReference={fileReference}", null);
+            var rsText = await rs.Content.ReadAsStringAsync(ct);
+            var status = TryGetString(rsText, "status");
+            if (string.Equals(status, "Succeeded", StringComparison.OrdinalIgnoreCase)) { recognized = true; break; }
+            if (!string.IsNullOrWhiteSpace(status) && status.IndexOf("Failed", StringComparison.OrdinalIgnoreCase) >= 0)
+                return (empty, "recognition failed");
+        }
+        if (!recognized) return (empty, "recognition timed out");
+
+        // 2) Extraction reusing the SAME correlationId + fileReference. documents[].classId MUST equal the
+        //    classExtractionDefinitions[].documentClassId, and treatEachFileAsDocument MUST be false.
+        var fieldDefs = fields.Select(f => new { id = f.Id, name = f.Name, description = f.Name }).ToArray();
+        var extractBody = new
+        {
+            correlationId,
+            configuration = new
+            {
+                executionProfile = new
+                {
+                    profileId = idp.ClassificationProfileId,
+                    versionId = idp.ClassificationProfileVersion,
+                    recognitionProfile = new { profileId = idp.RecognitionProfileId, versionId = idp.RecognitionProfileVersion },
+                },
+                treatEachFileAsDocument = false,
+                pageLimit = 10,
+                classExtractionDefinitions = new[]
+                {
+                    new { documentClassId = classId, name = "Document", description = "Document", fieldDefinitions = fieldDefs }
+                },
+            },
+            contentFileReferences = new[] { new { fileReference, sourceUrl } },
+            documents = new[]
+            {
+                new { id = Guid.NewGuid().ToString(), classId, pages = new[] { new { contentFileReferenceIndex = 0, sourcePageIndex = 0, rotation = 0 } } }
+            },
+        };
+
+        string? jobId;
+        using (var ex = await SendAsync(HttpMethod.Post, $"{baseUrl}/api/extraction", extractBody))
+        {
+            var text = await ex.Content.ReadAsStringAsync(ct);
+            if (!ex.IsSuccessStatusCode) return (empty, $"extraction submit failed ({(int)ex.StatusCode}): {text}");
+            jobId = JsonNode.Parse(text)?["jobId"]?.GetValue<string>();
+        }
+        if (string.IsNullOrWhiteSpace(jobId)) return (empty, "no extraction jobId");
+
+        for (int i = 0; i < 20; i++)
+        {
+            await Task.Delay(1500, ct);
+            using var sResp = await SendAsync(HttpMethod.Get, $"{baseUrl}/api/extraction/job/status?jobId={jobId}", null);
+            var sText = await sResp.Content.ReadAsStringAsync(ct);
+            var status = TryGetString(sText, "jobStatus");
+            if (string.Equals(status, "Succeeded", StringComparison.OrdinalIgnoreCase)) break;
+            if (!string.IsNullOrWhiteSpace(status) &&
+                (status.IndexOf("Failed", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                 status.IndexOf("Error", StringComparison.OrdinalIgnoreCase) >= 0))
+                return (empty, $"extraction job {status}");
+        }
+
+        using var rr = await SendAsync(HttpMethod.Get, $"{baseUrl}/api/extraction?jobId={jobId}", null);
+        var rrText = await rr.Content.ReadAsStringAsync(ct);
+        if (!rr.IsSuccessStatusCode) return (empty, $"extraction result failed ({(int)rr.StatusCode})");
+        try
+        {
+            var result = new List<ExtractedField>();
+            var fieldsArr = JsonNode.Parse(rrText)?["documents"]?.AsArray()?.FirstOrDefault()?["fields"]?.AsArray();
+            if (fieldsArr is not null)
+                foreach (var fn in fieldsArr)
+                {
+                    var id = fn?["id"]?.ToString() ?? "";
+                    var name = fn?["name"]?.ToString() ?? "";
+                    var value = fn?["extractedValue"]?.ToString() ?? "";
+                    double.TryParse(fn?["extractionConfidence"]?.ToString(), out var conf);
+                    var rev = !((fn?["reviewStatus"]?.ToString() ?? "")
+                        .Equals("ReviewNotRequired", StringComparison.OrdinalIgnoreCase));
+                    if (!string.IsNullOrWhiteSpace(value))
+                        result.Add(new ExtractedField(id, name, value, conf, rev));
+                }
+            return (result, null);
+        }
+        catch (Exception exc)
+        {
+            return (empty, $"could not parse extraction: {exc.Message}");
+        }
+    }
+
+    static string? TryGetString(string json, string prop)
+    {
+        try { return JsonNode.Parse(json)?[prop]?.ToString(); } catch { return null; }
+    }
+}
+
 // Small thread-safe cache for the Workday access token so we don't re-auth on every lookup.
 sealed class WorkdayTokenCache
-{
-    private readonly object _lock = new();
+{    private readonly object _lock = new();
     private string? _token;
     private DateTimeOffset _expiresAt;
 
@@ -2323,6 +2953,12 @@ sealed record CaptureRequest(
     ChatAttachment[]? Attachments);
 
 sealed record ViewerRequest(string DocId);
+
+sealed record IdpClassifyRequest(ChatAttachment[]? Attachments, string? BusinessObjectType);
+
+// One file + the metadata fields (id+name/label) to extract values for.
+sealed record IdpExtractRequest(ChatAttachment? Attachment, IdpExtractField[]? Fields);
+sealed record IdpExtractField(string Id, string Name);
 
 sealed record ExchangeRequest(string Code, string CodeVerifier, string RedirectUri);
 

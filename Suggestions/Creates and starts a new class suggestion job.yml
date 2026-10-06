@@ -1,0 +1,174 @@
+info:
+  name: Creates and starts a new class suggestion job.
+  type: http
+  seq: 3
+  tags:
+    - Suggestions
+
+http:
+  method: POST
+  url: "{{baseUrl}}/api/classification/suggestions/class"
+  body:
+    type: json
+    data: |-
+      {
+        "correlationId": "",
+        "options": {
+          "classesToExclude": [
+            {
+              "name": ""
+            }
+          ]
+        },
+        "contentFileReferences": [
+          {
+            "fileReference": "",
+            "sourceUrl": ""
+          }
+        ],
+        "relevantPagesForSuggestion": [
+          {
+            "contentFileReferenceIndex": 0,
+            "sourcePageIndex": 0,
+            "rotation": 0
+          }
+        ]
+      }
+  auth: inherit
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5
+
+examples:
+  - name: 202 Response
+    description: Class suggestion job was created and started.
+    request:
+      url: "{{baseUrl}}/api/classification/suggestions/class"
+      method: POST
+      body:
+        type: json
+        data: |-
+          {
+            "correlationId": "",
+            "options": {
+              "classesToExclude": [
+                {
+                  "name": ""
+                }
+              ]
+            },
+            "contentFileReferences": [
+              {
+                "fileReference": "",
+                "sourceUrl": ""
+              }
+            ],
+            "relevantPagesForSuggestion": [
+              {
+                "contentFileReferenceIndex": 0,
+                "sourcePageIndex": 0,
+                "rotation": 0
+              }
+            ]
+          }
+    response:
+      status: 202
+      statusText: Accepted
+      headers:
+        - name: Content-Type
+          value: text/plain
+      body:
+        type: text
+        data: |-
+          {
+            "jobId": ""
+          }
+  - name: 202 Response
+    description: Class suggestion job was created and started.
+    request:
+      url: "{{baseUrl}}/api/classification/suggestions/class"
+      method: POST
+      body:
+        type: json
+        data: |-
+          {
+            "correlationId": "",
+            "options": {
+              "classesToExclude": [
+                {
+                  "name": ""
+                }
+              ]
+            },
+            "contentFileReferences": [
+              {
+                "fileReference": "",
+                "sourceUrl": ""
+              }
+            ],
+            "relevantPagesForSuggestion": [
+              {
+                "contentFileReferenceIndex": 0,
+                "sourcePageIndex": 0,
+                "rotation": 0
+              }
+            ]
+          }
+    response:
+      status: 202
+      statusText: Accepted
+      headers:
+        - name: Content-Type
+          value: application/json
+      body:
+        type: json
+        data: |-
+          {
+            "jobId": ""
+          }
+  - name: 202 Response
+    description: Class suggestion job was created and started.
+    request:
+      url: "{{baseUrl}}/api/classification/suggestions/class"
+      method: POST
+      body:
+        type: json
+        data: |-
+          {
+            "correlationId": "",
+            "options": {
+              "classesToExclude": [
+                {
+                  "name": ""
+                }
+              ]
+            },
+            "contentFileReferences": [
+              {
+                "fileReference": "",
+                "sourceUrl": ""
+              }
+            ],
+            "relevantPagesForSuggestion": [
+              {
+                "contentFileReferenceIndex": 0,
+                "sourcePageIndex": 0,
+                "rotation": 0
+              }
+            ]
+          }
+    response:
+      status: 202
+      statusText: Accepted
+      headers:
+        - name: Content-Type
+          value: text/json
+      body:
+        type: json
+        data: |-
+          {
+            "jobId": ""
+          }

@@ -1,0 +1,146 @@
+info:
+  name: Returns state for the selected fields suggestions job.
+  type: http
+  seq: 2
+  tags:
+    - Suggestions
+
+http:
+  method: GET
+  url: "{{baseUrl}}/api/classification/suggestions/fields"
+  params:
+    - name: jobId
+      value: ""
+      type: query
+  auth: inherit
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5
+
+examples:
+  - name: 200 Response
+    description: Returns fields suggestions job state
+    request:
+      url: "{{baseUrl}}/api/classification/suggestions/fields"
+      method: GET
+      params:
+        - name: jobId
+          value: ""
+          type: query
+    response:
+      status: 200
+      statusText: OK
+      headers:
+        - name: Content-Type
+          value: text/plain
+      body:
+        type: text
+        data: |-
+          {
+            "jobId": "",
+            "processingStatus": "Processing",
+            "fields": [
+              {
+                "name": "",
+                "description": "",
+                "type": "",
+                "location": [
+                  {
+                    "text": "",
+                    "pageIndex": 0,
+                    "boundingBox": []
+                  }
+                ]
+              }
+            ]
+          }
+  - name: 200 Response
+    description: Returns fields suggestions job state
+    request:
+      url: "{{baseUrl}}/api/classification/suggestions/fields"
+      method: GET
+      params:
+        - name: jobId
+          value: ""
+          type: query
+    response:
+      status: 200
+      statusText: OK
+      headers:
+        - name: Content-Type
+          value: application/json
+      body:
+        type: json
+        data: |-
+          {
+            "jobId": "",
+            "processingStatus": "Processing",
+            "fields": [
+              {
+                "name": "",
+                "description": "",
+                "type": "",
+                "location": [
+                  {
+                    "text": "",
+                    "pageIndex": 0,
+                    "boundingBox": []
+                  }
+                ]
+              }
+            ]
+          }
+  - name: 200 Response
+    description: Returns fields suggestions job state
+    request:
+      url: "{{baseUrl}}/api/classification/suggestions/fields"
+      method: GET
+      params:
+        - name: jobId
+          value: ""
+          type: query
+    response:
+      status: 200
+      statusText: OK
+      headers:
+        - name: Content-Type
+          value: text/json
+      body:
+        type: json
+        data: |-
+          {
+            "jobId": "",
+            "processingStatus": "Processing",
+            "fields": [
+              {
+                "name": "",
+                "description": "",
+                "type": "",
+                "location": [
+                  {
+                    "text": "",
+                    "pageIndex": 0,
+                    "boundingBox": []
+                  }
+                ]
+              }
+            ]
+          }
+  - name: 404 Response
+    description: Job not found.
+    request:
+      url: "{{baseUrl}}/api/classification/suggestions/fields"
+      method: GET
+      params:
+        - name: jobId
+          value: ""
+          type: query
+    response:
+      status: 404
+      statusText: Not Found
+      body:
+        type: text
+        data: ""

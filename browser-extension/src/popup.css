@@ -27,7 +27,6 @@
 [hidden] {
   display: none !important;
 }
-
 body {
   width: 100%;
   min-width: 320px;
@@ -852,6 +851,20 @@ body {
   border-radius: var(--radius);
 }
 
+.hec__uploadFile.is-clickable {
+  cursor: pointer;
+}
+
+.hec__uploadFile.is-clickable:hover {
+  background: #eef1f6;
+}
+
+.hec__uploadFile.is-selected {
+  border-color: #4a80d6;
+  box-shadow: inset 0 0 0 1px #4a80d6;
+  background: #eef3fc;
+}
+
 .hec__uploadFile button {
   border: none;
   background: transparent;
@@ -859,6 +872,44 @@ body {
   cursor: pointer;
   font-size: 14px;
   line-height: 1;
+}
+
+/* IDP auto-classification result chip shown on each queued file. */
+.hec__idpBadge {
+  margin-left: auto;
+  font-size: 11px;
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: #e6f4ea;
+  color: #1e7a3d;
+  border: 1px solid #bfe3cb;
+  white-space: nowrap;
+}
+.hec__idpBadge--review {
+  background: #fdf3e3;
+  color: #9a6400;
+  border-color: #f0d9a8;
+}
+
+/* Doc type manually changed from IDP's detection. */
+.hec__idpBadge--edited {
+  background: #eef2ff;
+  color: #3730a3;
+  border-color: #c7d2fe;
+}
+
+/* Metadata input auto-filled by IDP extraction. */
+.hec__metaAuto {
+  background: #eefbf1;
+  border-color: #bfe3cb;
+}
+
+/* Preview-only metadata: IDP extracted it, but this config won't store it on upload. */
+.hec__metaPreview {
+  background: #f4f5f7;
+  color: #6b7280;
+  border-style: dashed;
 }
 
 .hec__upload .hec__actions {
@@ -874,6 +925,67 @@ body {
 
 .context__status.is-error {
   color: #c0392b;
+}
+
+/* 403 "access restricted" state — takes over the record area when the signed-in user isn't
+   authorised to view/capture the on-screen employee (the chatbot below stays usable). */
+.hec__denied {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  padding: 32px 22px 36px;
+  margin: 6px 0 4px;
+  border: 1px solid var(--line);
+  border-top: 3px solid var(--err);
+  border-radius: var(--radius);
+  background: linear-gradient(180deg, var(--panel) 0%, var(--bg) 60%);
+  box-shadow: var(--shadow);
+}
+
+.hec__deniedIcon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 58px;
+  height: 58px;
+  border-radius: 50%;
+  color: var(--err);
+  background: rgba(192, 43, 43, 0.07);
+  border: 1px solid rgba(192, 43, 43, 0.22);
+  margin-bottom: 16px;
+}
+
+.hec__deniedCode {
+  font-size: 46px;
+  font-weight: 700;
+  line-height: 1;
+  letter-spacing: 2px;
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+}
+
+.hec__deniedRule {
+  width: 44px;
+  height: 2px;
+  margin: 14px 0 12px;
+  background: var(--line-strong);
+}
+
+.hec__deniedTitle {
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 3px;
+  text-transform: uppercase;
+  color: var(--err);
+}
+
+.hec__deniedMsg {
+  margin: 12px auto 0;
+  max-width: 300px;
+  font-size: 15px;
+  line-height: 1.55;
+  color: var(--text);
 }
 
 .hec__meta {

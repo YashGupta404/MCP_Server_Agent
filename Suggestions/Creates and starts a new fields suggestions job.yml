@@ -1,0 +1,214 @@
+info:
+  name: Creates and starts a new fields suggestions job.
+  type: http
+  seq: 1
+  tags:
+    - Suggestions
+
+http:
+  method: POST
+  url: "{{baseUrl}}/api/classification/suggestions/fields"
+  body:
+    type: json
+    data: |-
+      {
+        "correlationId": "",
+        "class": {
+          "id": "",
+          "name": "",
+          "description": ""
+        },
+        "options": {
+          "numberOfSuggestions": 0,
+          "fieldTypes": [],
+          "fieldsToExclude": [
+            {
+              "name": ""
+            }
+          ]
+        },
+        "contentFileReferences": [
+          {
+            "fileReference": "",
+            "sourceUrl": ""
+          }
+        ],
+        "document": {
+          "id": "",
+          "pages": [
+            {
+              "contentFileReferenceIndex": 0,
+              "sourcePageIndex": 0,
+              "rotation": 0
+            }
+          ]
+        }
+      }
+  auth: inherit
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5
+
+examples:
+  - name: 202 Response
+    description: Fields suggestions job was created and started.
+    request:
+      url: "{{baseUrl}}/api/classification/suggestions/fields"
+      method: POST
+      body:
+        type: json
+        data: |-
+          {
+            "correlationId": "",
+            "class": {
+              "id": "",
+              "name": "",
+              "description": ""
+            },
+            "options": {
+              "numberOfSuggestions": 0,
+              "fieldTypes": [],
+              "fieldsToExclude": [
+                {
+                  "name": ""
+                }
+              ]
+            },
+            "contentFileReferences": [
+              {
+                "fileReference": "",
+                "sourceUrl": ""
+              }
+            ],
+            "document": {
+              "id": "",
+              "pages": [
+                {
+                  "contentFileReferenceIndex": 0,
+                  "sourcePageIndex": 0,
+                  "rotation": 0
+                }
+              ]
+            }
+          }
+    response:
+      status: 202
+      statusText: Accepted
+      headers:
+        - name: Content-Type
+          value: text/plain
+      body:
+        type: text
+        data: |-
+          {
+            "jobId": ""
+          }
+  - name: 202 Response
+    description: Fields suggestions job was created and started.
+    request:
+      url: "{{baseUrl}}/api/classification/suggestions/fields"
+      method: POST
+      body:
+        type: json
+        data: |-
+          {
+            "correlationId": "",
+            "class": {
+              "id": "",
+              "name": "",
+              "description": ""
+            },
+            "options": {
+              "numberOfSuggestions": 0,
+              "fieldTypes": [],
+              "fieldsToExclude": [
+                {
+                  "name": ""
+                }
+              ]
+            },
+            "contentFileReferences": [
+              {
+                "fileReference": "",
+                "sourceUrl": ""
+              }
+            ],
+            "document": {
+              "id": "",
+              "pages": [
+                {
+                  "contentFileReferenceIndex": 0,
+                  "sourcePageIndex": 0,
+                  "rotation": 0
+                }
+              ]
+            }
+          }
+    response:
+      status: 202
+      statusText: Accepted
+      headers:
+        - name: Content-Type
+          value: application/json
+      body:
+        type: json
+        data: |-
+          {
+            "jobId": ""
+          }
+  - name: 202 Response
+    description: Fields suggestions job was created and started.
+    request:
+      url: "{{baseUrl}}/api/classification/suggestions/fields"
+      method: POST
+      body:
+        type: json
+        data: |-
+          {
+            "correlationId": "",
+            "class": {
+              "id": "",
+              "name": "",
+              "description": ""
+            },
+            "options": {
+              "numberOfSuggestions": 0,
+              "fieldTypes": [],
+              "fieldsToExclude": [
+                {
+                  "name": ""
+                }
+              ]
+            },
+            "contentFileReferences": [
+              {
+                "fileReference": "",
+                "sourceUrl": ""
+              }
+            ],
+            "document": {
+              "id": "",
+              "pages": [
+                {
+                  "contentFileReferenceIndex": 0,
+                  "sourcePageIndex": 0,
+                  "rotation": 0
+                }
+              ]
+            }
+          }
+    response:
+      status: 202
+      statusText: Accepted
+      headers:
+        - name: Content-Type
+          value: text/json
+      body:
+        type: json
+        data: |-
+          {
+            "jobId": ""
+          }

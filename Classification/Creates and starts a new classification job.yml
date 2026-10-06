@@ -1,0 +1,676 @@
+info:
+  name: Creates and starts a new classification job.
+  type: http
+  seq: 1
+  tags:
+    - Classification
+
+http:
+  method: POST
+  url: "{{baseUrl}}/api/classification"
+  body:
+    type: json
+    data: |-
+      {
+        "correlationId": "",
+        "jobMetaData": {},
+        "configuration": {
+          "documentClassDefinitions": [
+            {
+              "id": "",
+              "name": "",
+              "description": "",
+              "confidenceThreshold": 0,
+              "reviewThreshold": 0,
+              "classAssignmentThreshold": 0,
+              "ignoreForAuto": false
+            }
+          ],
+          "treatEachFileAsDocument": false,
+          "includeClassCandidateReasoning": false,
+          "reviewThreshold": 0,
+          "classAssignmentThreshold": 0,
+          "classCandidatesMinDistance": 0,
+          "defaultClassId": "",
+          "pageLimit": 0,
+          "executionProfile": {
+            "profileId": "",
+            "versionId": "",
+            "recognitionProfile": {
+              "profileId": "",
+              "versionId": ""
+            }
+          }
+        },
+        "contentFileReferences": [
+          {
+            "fileReference": "",
+            "sourceUrl": ""
+          }
+        ],
+        "documents": [
+          {
+            "id": "",
+            "pages": [
+              {
+                "contentFileReferenceIndex": 0,
+                "sourcePageIndex": 0,
+                "rotation": 0
+              }
+            ]
+          }
+        ],
+        "executionProfileResolved": {
+          "profileId": "",
+          "versionId": "",
+          "actionTaken": "",
+          "recognitionProfile": {
+            "profileId": "",
+            "versionId": "",
+            "actionTaken": ""
+          }
+        }
+      }
+  auth: inherit
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5
+
+examples:
+  - name: 200 Response
+    description: Returns Classification job data
+    request:
+      url: "{{baseUrl}}/api/classification"
+      method: POST
+      body:
+        type: json
+        data: |-
+          {
+            "correlationId": "",
+            "jobMetaData": {},
+            "configuration": {
+              "documentClassDefinitions": [
+                {
+                  "id": "",
+                  "name": "",
+                  "description": "",
+                  "confidenceThreshold": 0,
+                  "reviewThreshold": 0,
+                  "classAssignmentThreshold": 0,
+                  "ignoreForAuto": false
+                }
+              ],
+              "treatEachFileAsDocument": false,
+              "includeClassCandidateReasoning": false,
+              "reviewThreshold": 0,
+              "classAssignmentThreshold": 0,
+              "classCandidatesMinDistance": 0,
+              "defaultClassId": "",
+              "pageLimit": 0,
+              "executionProfile": {
+                "profileId": "",
+                "versionId": "",
+                "recognitionProfile": {
+                  "profileId": "",
+                  "versionId": ""
+                }
+              }
+            },
+            "contentFileReferences": [
+              {
+                "fileReference": "",
+                "sourceUrl": ""
+              }
+            ],
+            "documents": [
+              {
+                "id": "",
+                "pages": [
+                  {
+                    "contentFileReferenceIndex": 0,
+                    "sourcePageIndex": 0,
+                    "rotation": 0
+                  }
+                ]
+              }
+            ],
+            "executionProfileResolved": {
+              "profileId": "",
+              "versionId": "",
+              "actionTaken": "",
+              "recognitionProfile": {
+                "profileId": "",
+                "versionId": "",
+                "actionTaken": ""
+              }
+            }
+          }
+    response:
+      status: 200
+      statusText: OK
+      headers:
+        - name: Content-Type
+          value: text/plain
+      body:
+        type: text
+        data: |-
+          {
+            "jobId": "",
+            "jobMetaData": {},
+            "documents": [
+              {
+                "id": "",
+                "classId": "",
+                "className": "",
+                "confidence": 0,
+                "classCandidates": [
+                  {
+                    "classId": "",
+                    "className": "",
+                    "confidence": 0,
+                    "reason": ""
+                  }
+                ],
+                "processingStatus": "Processing",
+                "reviewStatus": "ReviewRequired",
+                "selectionReason": "AUTOWIN",
+                "pages": [
+                  {
+                    "contentFileReferenceIndex": 0,
+                    "sourcePageIndex": 0,
+                    "rotation": 0
+                  }
+                ]
+              }
+            ],
+            "contentFileReferences": [],
+            "executionProfile": {
+              "profileId": "",
+              "versionId": "",
+              "actionTaken": "",
+              "recognitionProfile": {
+                "profileId": "",
+                "versionId": "",
+                "actionTaken": ""
+              }
+            }
+          }
+  - name: 200 Response
+    description: Returns Classification job data
+    request:
+      url: "{{baseUrl}}/api/classification"
+      method: POST
+      body:
+        type: json
+        data: |-
+          {
+            "correlationId": "",
+            "jobMetaData": {},
+            "configuration": {
+              "documentClassDefinitions": [
+                {
+                  "id": "",
+                  "name": "",
+                  "description": "",
+                  "confidenceThreshold": 0,
+                  "reviewThreshold": 0,
+                  "classAssignmentThreshold": 0,
+                  "ignoreForAuto": false
+                }
+              ],
+              "treatEachFileAsDocument": false,
+              "includeClassCandidateReasoning": false,
+              "reviewThreshold": 0,
+              "classAssignmentThreshold": 0,
+              "classCandidatesMinDistance": 0,
+              "defaultClassId": "",
+              "pageLimit": 0,
+              "executionProfile": {
+                "profileId": "",
+                "versionId": "",
+                "recognitionProfile": {
+                  "profileId": "",
+                  "versionId": ""
+                }
+              }
+            },
+            "contentFileReferences": [
+              {
+                "fileReference": "",
+                "sourceUrl": ""
+              }
+            ],
+            "documents": [
+              {
+                "id": "",
+                "pages": [
+                  {
+                    "contentFileReferenceIndex": 0,
+                    "sourcePageIndex": 0,
+                    "rotation": 0
+                  }
+                ]
+              }
+            ],
+            "executionProfileResolved": {
+              "profileId": "",
+              "versionId": "",
+              "actionTaken": "",
+              "recognitionProfile": {
+                "profileId": "",
+                "versionId": "",
+                "actionTaken": ""
+              }
+            }
+          }
+    response:
+      status: 200
+      statusText: OK
+      headers:
+        - name: Content-Type
+          value: application/json
+      body:
+        type: json
+        data: |-
+          {
+            "jobId": "",
+            "jobMetaData": {},
+            "documents": [
+              {
+                "id": "",
+                "classId": "",
+                "className": "",
+                "confidence": 0,
+                "classCandidates": [
+                  {
+                    "classId": "",
+                    "className": "",
+                    "confidence": 0,
+                    "reason": ""
+                  }
+                ],
+                "processingStatus": "Processing",
+                "reviewStatus": "ReviewRequired",
+                "selectionReason": "AUTOWIN",
+                "pages": [
+                  {
+                    "contentFileReferenceIndex": 0,
+                    "sourcePageIndex": 0,
+                    "rotation": 0
+                  }
+                ]
+              }
+            ],
+            "contentFileReferences": [],
+            "executionProfile": {
+              "profileId": "",
+              "versionId": "",
+              "actionTaken": "",
+              "recognitionProfile": {
+                "profileId": "",
+                "versionId": "",
+                "actionTaken": ""
+              }
+            }
+          }
+  - name: 200 Response
+    description: Returns Classification job data
+    request:
+      url: "{{baseUrl}}/api/classification"
+      method: POST
+      body:
+        type: json
+        data: |-
+          {
+            "correlationId": "",
+            "jobMetaData": {},
+            "configuration": {
+              "documentClassDefinitions": [
+                {
+                  "id": "",
+                  "name": "",
+                  "description": "",
+                  "confidenceThreshold": 0,
+                  "reviewThreshold": 0,
+                  "classAssignmentThreshold": 0,
+                  "ignoreForAuto": false
+                }
+              ],
+              "treatEachFileAsDocument": false,
+              "includeClassCandidateReasoning": false,
+              "reviewThreshold": 0,
+              "classAssignmentThreshold": 0,
+              "classCandidatesMinDistance": 0,
+              "defaultClassId": "",
+              "pageLimit": 0,
+              "executionProfile": {
+                "profileId": "",
+                "versionId": "",
+                "recognitionProfile": {
+                  "profileId": "",
+                  "versionId": ""
+                }
+              }
+            },
+            "contentFileReferences": [
+              {
+                "fileReference": "",
+                "sourceUrl": ""
+              }
+            ],
+            "documents": [
+              {
+                "id": "",
+                "pages": [
+                  {
+                    "contentFileReferenceIndex": 0,
+                    "sourcePageIndex": 0,
+                    "rotation": 0
+                  }
+                ]
+              }
+            ],
+            "executionProfileResolved": {
+              "profileId": "",
+              "versionId": "",
+              "actionTaken": "",
+              "recognitionProfile": {
+                "profileId": "",
+                "versionId": "",
+                "actionTaken": ""
+              }
+            }
+          }
+    response:
+      status: 200
+      statusText: OK
+      headers:
+        - name: Content-Type
+          value: text/json
+      body:
+        type: json
+        data: |-
+          {
+            "jobId": "",
+            "jobMetaData": {},
+            "documents": [
+              {
+                "id": "",
+                "classId": "",
+                "className": "",
+                "confidence": 0,
+                "classCandidates": [
+                  {
+                    "classId": "",
+                    "className": "",
+                    "confidence": 0,
+                    "reason": ""
+                  }
+                ],
+                "processingStatus": "Processing",
+                "reviewStatus": "ReviewRequired",
+                "selectionReason": "AUTOWIN",
+                "pages": [
+                  {
+                    "contentFileReferenceIndex": 0,
+                    "sourcePageIndex": 0,
+                    "rotation": 0
+                  }
+                ]
+              }
+            ],
+            "contentFileReferences": [],
+            "executionProfile": {
+              "profileId": "",
+              "versionId": "",
+              "actionTaken": "",
+              "recognitionProfile": {
+                "profileId": "",
+                "versionId": "",
+                "actionTaken": ""
+              }
+            }
+          }
+  - name: 202 Response
+    description: Classification job was created and started.
+    request:
+      url: "{{baseUrl}}/api/classification"
+      method: POST
+      body:
+        type: json
+        data: |-
+          {
+            "correlationId": "",
+            "jobMetaData": {},
+            "configuration": {
+              "documentClassDefinitions": [
+                {
+                  "id": "",
+                  "name": "",
+                  "description": "",
+                  "confidenceThreshold": 0,
+                  "reviewThreshold": 0,
+                  "classAssignmentThreshold": 0,
+                  "ignoreForAuto": false
+                }
+              ],
+              "treatEachFileAsDocument": false,
+              "includeClassCandidateReasoning": false,
+              "reviewThreshold": 0,
+              "classAssignmentThreshold": 0,
+              "classCandidatesMinDistance": 0,
+              "defaultClassId": "",
+              "pageLimit": 0,
+              "executionProfile": {
+                "profileId": "",
+                "versionId": "",
+                "recognitionProfile": {
+                  "profileId": "",
+                  "versionId": ""
+                }
+              }
+            },
+            "contentFileReferences": [
+              {
+                "fileReference": "",
+                "sourceUrl": ""
+              }
+            ],
+            "documents": [
+              {
+                "id": "",
+                "pages": [
+                  {
+                    "contentFileReferenceIndex": 0,
+                    "sourcePageIndex": 0,
+                    "rotation": 0
+                  }
+                ]
+              }
+            ],
+            "executionProfileResolved": {
+              "profileId": "",
+              "versionId": "",
+              "actionTaken": "",
+              "recognitionProfile": {
+                "profileId": "",
+                "versionId": "",
+                "actionTaken": ""
+              }
+            }
+          }
+    response:
+      status: 202
+      statusText: Accepted
+      headers:
+        - name: Content-Type
+          value: text/plain
+      body:
+        type: text
+        data: |-
+          {
+            "jobId": ""
+          }
+  - name: 202 Response
+    description: Classification job was created and started.
+    request:
+      url: "{{baseUrl}}/api/classification"
+      method: POST
+      body:
+        type: json
+        data: |-
+          {
+            "correlationId": "",
+            "jobMetaData": {},
+            "configuration": {
+              "documentClassDefinitions": [
+                {
+                  "id": "",
+                  "name": "",
+                  "description": "",
+                  "confidenceThreshold": 0,
+                  "reviewThreshold": 0,
+                  "classAssignmentThreshold": 0,
+                  "ignoreForAuto": false
+                }
+              ],
+              "treatEachFileAsDocument": false,
+              "includeClassCandidateReasoning": false,
+              "reviewThreshold": 0,
+              "classAssignmentThreshold": 0,
+              "classCandidatesMinDistance": 0,
+              "defaultClassId": "",
+              "pageLimit": 0,
+              "executionProfile": {
+                "profileId": "",
+                "versionId": "",
+                "recognitionProfile": {
+                  "profileId": "",
+                  "versionId": ""
+                }
+              }
+            },
+            "contentFileReferences": [
+              {
+                "fileReference": "",
+                "sourceUrl": ""
+              }
+            ],
+            "documents": [
+              {
+                "id": "",
+                "pages": [
+                  {
+                    "contentFileReferenceIndex": 0,
+                    "sourcePageIndex": 0,
+                    "rotation": 0
+                  }
+                ]
+              }
+            ],
+            "executionProfileResolved": {
+              "profileId": "",
+              "versionId": "",
+              "actionTaken": "",
+              "recognitionProfile": {
+                "profileId": "",
+                "versionId": "",
+                "actionTaken": ""
+              }
+            }
+          }
+    response:
+      status: 202
+      statusText: Accepted
+      headers:
+        - name: Content-Type
+          value: application/json
+      body:
+        type: json
+        data: |-
+          {
+            "jobId": ""
+          }
+  - name: 202 Response
+    description: Classification job was created and started.
+    request:
+      url: "{{baseUrl}}/api/classification"
+      method: POST
+      body:
+        type: json
+        data: |-
+          {
+            "correlationId": "",
+            "jobMetaData": {},
+            "configuration": {
+              "documentClassDefinitions": [
+                {
+                  "id": "",
+                  "name": "",
+                  "description": "",
+                  "confidenceThreshold": 0,
+                  "reviewThreshold": 0,
+                  "classAssignmentThreshold": 0,
+                  "ignoreForAuto": false
+                }
+              ],
+              "treatEachFileAsDocument": false,
+              "includeClassCandidateReasoning": false,
+              "reviewThreshold": 0,
+              "classAssignmentThreshold": 0,
+              "classCandidatesMinDistance": 0,
+              "defaultClassId": "",
+              "pageLimit": 0,
+              "executionProfile": {
+                "profileId": "",
+                "versionId": "",
+                "recognitionProfile": {
+                  "profileId": "",
+                  "versionId": ""
+                }
+              }
+            },
+            "contentFileReferences": [
+              {
+                "fileReference": "",
+                "sourceUrl": ""
+              }
+            ],
+            "documents": [
+              {
+                "id": "",
+                "pages": [
+                  {
+                    "contentFileReferenceIndex": 0,
+                    "sourcePageIndex": 0,
+                    "rotation": 0
+                  }
+                ]
+              }
+            ],
+            "executionProfileResolved": {
+              "profileId": "",
+              "versionId": "",
+              "actionTaken": "",
+              "recognitionProfile": {
+                "profileId": "",
+                "versionId": "",
+                "actionTaken": ""
+              }
+            }
+          }
+    response:
+      status: 202
+      statusText: Accepted
+      headers:
+        - name: Content-Type
+          value: text/json
+      body:
+        type: json
+        data: |-
+          {
+            "jobId": ""
+          }

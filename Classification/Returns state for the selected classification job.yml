@@ -1,0 +1,215 @@
+info:
+  name: Returns state for the selected classification job.
+  type: http
+  seq: 2
+  tags:
+    - Classification
+
+http:
+  method: GET
+  url: "{{baseUrl}}/api/classification?jobId=c0050d76-68bf-4fe2-b85e-95035b728c8f"
+  params:
+    - name: jobId
+      value: c0050d76-68bf-4fe2-b85e-95035b728c8f
+      type: query
+  auth: inherit
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5
+
+examples:
+  - name: 200 Response
+    description: Returns classification job state
+    request:
+      url: "{{baseUrl}}/api/classification"
+      method: GET
+      params:
+        - name: jobId
+          value: ""
+          type: query
+    response:
+      status: 200
+      statusText: OK
+      headers:
+        - name: Content-Type
+          value: text/plain
+      body:
+        type: text
+        data: |-
+          {
+            "jobId": "",
+            "jobMetaData": {},
+            "documents": [
+              {
+                "id": "",
+                "classId": "",
+                "className": "",
+                "confidence": 0,
+                "classCandidates": [
+                  {
+                    "classId": "",
+                    "className": "",
+                    "confidence": 0,
+                    "reason": ""
+                  }
+                ],
+                "processingStatus": "Processing",
+                "reviewStatus": "ReviewRequired",
+                "selectionReason": "AUTOWIN",
+                "pages": [
+                  {
+                    "contentFileReferenceIndex": 0,
+                    "sourcePageIndex": 0,
+                    "rotation": 0
+                  }
+                ]
+              }
+            ],
+            "contentFileReferences": [],
+            "executionProfile": {
+              "profileId": "",
+              "versionId": "",
+              "actionTaken": "",
+              "recognitionProfile": {
+                "profileId": "",
+                "versionId": "",
+                "actionTaken": ""
+              }
+            }
+          }
+  - name: 200 Response
+    description: Returns classification job state
+    request:
+      url: "{{baseUrl}}/api/classification"
+      method: GET
+      params:
+        - name: jobId
+          value: ""
+          type: query
+    response:
+      status: 200
+      statusText: OK
+      headers:
+        - name: Content-Type
+          value: application/json
+      body:
+        type: json
+        data: |-
+          {
+            "jobId": "",
+            "jobMetaData": {},
+            "documents": [
+              {
+                "id": "",
+                "classId": "",
+                "className": "",
+                "confidence": 0,
+                "classCandidates": [
+                  {
+                    "classId": "",
+                    "className": "",
+                    "confidence": 0,
+                    "reason": ""
+                  }
+                ],
+                "processingStatus": "Processing",
+                "reviewStatus": "ReviewRequired",
+                "selectionReason": "AUTOWIN",
+                "pages": [
+                  {
+                    "contentFileReferenceIndex": 0,
+                    "sourcePageIndex": 0,
+                    "rotation": 0
+                  }
+                ]
+              }
+            ],
+            "contentFileReferences": [],
+            "executionProfile": {
+              "profileId": "",
+              "versionId": "",
+              "actionTaken": "",
+              "recognitionProfile": {
+                "profileId": "",
+                "versionId": "",
+                "actionTaken": ""
+              }
+            }
+          }
+  - name: 200 Response
+    description: Returns classification job state
+    request:
+      url: "{{baseUrl}}/api/classification"
+      method: GET
+      params:
+        - name: jobId
+          value: ""
+          type: query
+    response:
+      status: 200
+      statusText: OK
+      headers:
+        - name: Content-Type
+          value: text/json
+      body:
+        type: json
+        data: |-
+          {
+            "jobId": "",
+            "jobMetaData": {},
+            "documents": [
+              {
+                "id": "",
+                "classId": "",
+                "className": "",
+                "confidence": 0,
+                "classCandidates": [
+                  {
+                    "classId": "",
+                    "className": "",
+                    "confidence": 0,
+                    "reason": ""
+                  }
+                ],
+                "processingStatus": "Processing",
+                "reviewStatus": "ReviewRequired",
+                "selectionReason": "AUTOWIN",
+                "pages": [
+                  {
+                    "contentFileReferenceIndex": 0,
+                    "sourcePageIndex": 0,
+                    "rotation": 0
+                  }
+                ]
+              }
+            ],
+            "contentFileReferences": [],
+            "executionProfile": {
+              "profileId": "",
+              "versionId": "",
+              "actionTaken": "",
+              "recognitionProfile": {
+                "profileId": "",
+                "versionId": "",
+                "actionTaken": ""
+              }
+            }
+          }
+  - name: 404 Response
+    description: Job not found.
+    request:
+      url: "{{baseUrl}}/api/classification"
+      method: GET
+      params:
+        - name: jobId
+          value: ""
+          type: query
+    response:
+      status: 404
+      statusText: Not Found
+      body:
+        type: text
+        data: ""

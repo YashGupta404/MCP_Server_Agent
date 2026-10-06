@@ -1,0 +1,101 @@
+info:
+  name: Returns status for the selected classification job.
+  type: http
+  seq: 3
+  tags:
+    - Classification
+
+http:
+  method: GET
+  url: "{{baseUrl}}/api/classification/job/status"
+  params:
+    - name: jobId
+      value: ""
+      type: query
+  auth: inherit
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5
+
+examples:
+  - name: 200 Response
+    description: Returns classification job status
+    request:
+      url: "{{baseUrl}}/api/classification/job/status"
+      method: GET
+      params:
+        - name: jobId
+          value: ""
+          type: query
+    response:
+      status: 200
+      statusText: OK
+      headers:
+        - name: Content-Type
+          value: text/plain
+      body:
+        type: text
+        data: |-
+          {
+            "jobStatus": "Processing"
+          }
+  - name: 200 Response
+    description: Returns classification job status
+    request:
+      url: "{{baseUrl}}/api/classification/job/status"
+      method: GET
+      params:
+        - name: jobId
+          value: ""
+          type: query
+    response:
+      status: 200
+      statusText: OK
+      headers:
+        - name: Content-Type
+          value: application/json
+      body:
+        type: json
+        data: |-
+          {
+            "jobStatus": "Processing"
+          }
+  - name: 200 Response
+    description: Returns classification job status
+    request:
+      url: "{{baseUrl}}/api/classification/job/status"
+      method: GET
+      params:
+        - name: jobId
+          value: ""
+          type: query
+    response:
+      status: 200
+      statusText: OK
+      headers:
+        - name: Content-Type
+          value: text/json
+      body:
+        type: json
+        data: |-
+          {
+            "jobStatus": "Processing"
+          }
+  - name: 404 Response
+    description: Job not found.
+    request:
+      url: "{{baseUrl}}/api/classification/job/status"
+      method: GET
+      params:
+        - name: jobId
+          value: ""
+          type: query
+    response:
+      status: 404
+      statusText: Not Found
+      body:
+        type: text
+        data: ""

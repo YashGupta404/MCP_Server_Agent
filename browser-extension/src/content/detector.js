@@ -102,6 +102,59 @@
     return detectWorkerProfile();
   }
 
+  // Workday lazy-renders the "Job Details" section (which holds the Employee ID) only once it's near the
+  // viewport, so on first load a real subordinate looks like "no Employee ID -> not authorised". This
+  // probe forces that section to hydrate WITHOUT a visible scroll, then re-publishes so the panel can
+  // resolve the worker. It uses two invisible techniques (no viewport jump the user can see):
+  //   (1) temporarily force `content-visibility:auto` sections to render via an injected stylesheet;
+  //   (2) for scroll-handler lazy loaders, jump scrollTop to the bottom, fire the handler synchronously,
+  //       then restore scrollTop in the SAME task so the browser never paints the bottom position.
+  // Runs at most once per worker URL.
+  let empIdProbeUrl = null;
+  const hasEmployeeIdInDom = () =>
+    /\bEmployee ID\b\s*[:#\-]?\s*[0-9]{3,}/i.test((document.body && document.body.innerText) || "");
+
+  async function probeForEmployeeId() {
+    if (hasEmployeeIdInDom()) return;
+
+    // (1) Force content-visibility / contain-based lazy sections to render — no scrolling involved.
+    const style = document.createElement("style");
+    style.setAttribute("data-uceb-probe", "1");
+    style.textContent = "*{content-visibility:visible !important;contain-intrinsic-size:auto !important;}";
+    (document.head || document.documentElement).appendChild(style);
+
+    // (2) Collect the window plus any inner scroll containers tall enough to hide the Job Details section.
+    const scrollers = [document.scrollingElement || document.documentElement];
+    try {
+      document.querySelectorAll("*").forEach((el) => {
+        const s = getComputedStyle(el);
+        if ((s.overflowY === "auto" || s.overflowY === "scroll") && el.scrollHeight - el.clientHeight > 200) {
+          scrollers.push(el);
+        }
+      });
+    } catch {
+      /* getComputedStyle can throw on detached nodes; ignore */
+    }
+    const saved = scrollers.map((el) => el.scrollTop);
+    try {
+      for (let pass = 0; pass < 3; pass++) {
+        // Jump to the bottom and fire scroll handlers synchronously, then restore before the next paint.
+        for (const el of scrollers) {
+          el.scrollTop = el.scrollHeight;
+          el.dispatchEvent(new Event("scroll", { bubbles: true }));
+        }
+        window.dispatchEvent(new Event("scroll"));
+        scrollers.forEach((el, i) => { el.scrollTop = saved[i]; }); // restore in-task -> nothing paints
+        await new Promise((r) => setTimeout(r, 300)); // let any triggered async render complete
+        if (hasEmployeeIdInDom()) break;
+      }
+    } finally {
+      scrollers.forEach((el, i) => { el.scrollTop = saved[i]; });
+      style.remove();
+    }
+    publish(true); // re-detect: the Employee ID may now be present -> needsResolve -> docs load
+  }
+
   // Reads the worker's identity off a Workday worker page. Prefers the Employee ID (shown on the Job
   // Details tab, e.g. "Employee ID 21021") because it resolves to exactly one worker; otherwise falls
   // back to the worker's name from the profile/sidebar header. Returns a `needsResolve` marker (no
@@ -135,6 +188,14 @@
     }
     name = name.replace(/\s*\([^)]*\)\s*/g, " ").replace(/\s+/g, " ").trim();
 
+    // Guard: some Workday pages that are NOT a single worker profile (Org Chart / People View, team
+    // views, directory or task pages) still expose a header title. Never treat those as a worker — no
+    // record, and definitely no "not authorised" for a made-up name like "Org Chart".
+    const path = location.pathname + location.hash;
+    if (/\/rel-task\//i.test(path) || /(org chart|people view|view team|team member|directory)/i.test(name)) {
+      return null;
+    }
+
     // The Employee ID is only shown for workers you're authorised to see (your subordinates). When it's
     // present, resolve the WID and show their documents. When it's absent (a peer or your own manager),
     // surface just the NAME so the panel can say you're not authorised — do NOT try to resolve them.
@@ -142,6 +203,12 @@
       return { rawType: "employee", needsResolve: true, resolveQuery: employeeId, displayName: name || `Employee ${employeeId}` };
     }
     if (name) {
+      // No Employee ID in the DOM yet. It may just be lazy-rendered below the fold, so force that
+      // section to hydrate (once per URL) before the panel commits to the 403.
+      if (empIdProbeUrl !== location.href) {
+        empIdProbeUrl = location.href;
+        probeForEmployeeId();
+      }
       return { rawType: "employee", notAuthorized: true, displayName: name };
     }
     return null;

@@ -1,0 +1,116 @@
+info:
+  name: Returns state for the selected class suggestion job.
+  type: http
+  seq: 4
+  tags:
+    - Suggestions
+
+http:
+  method: GET
+  url: "{{baseUrl}}/api/classification/suggestions/class"
+  params:
+    - name: jobId
+      value: ""
+      type: query
+  auth: inherit
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5
+
+examples:
+  - name: 200 Response
+    description: Returns class suggestion job state
+    request:
+      url: "{{baseUrl}}/api/classification/suggestions/class"
+      method: GET
+      params:
+        - name: jobId
+          value: ""
+          type: query
+    response:
+      status: 200
+      statusText: OK
+      headers:
+        - name: Content-Type
+          value: text/plain
+      body:
+        type: text
+        data: |-
+          {
+            "jobId": "",
+            "processingStatus": "Processing",
+            "classSuggestion": {
+              "name": "",
+              "description": ""
+            }
+          }
+  - name: 200 Response
+    description: Returns class suggestion job state
+    request:
+      url: "{{baseUrl}}/api/classification/suggestions/class"
+      method: GET
+      params:
+        - name: jobId
+          value: ""
+          type: query
+    response:
+      status: 200
+      statusText: OK
+      headers:
+        - name: Content-Type
+          value: application/json
+      body:
+        type: json
+        data: |-
+          {
+            "jobId": "",
+            "processingStatus": "Processing",
+            "classSuggestion": {
+              "name": "",
+              "description": ""
+            }
+          }
+  - name: 200 Response
+    description: Returns class suggestion job state
+    request:
+      url: "{{baseUrl}}/api/classification/suggestions/class"
+      method: GET
+      params:
+        - name: jobId
+          value: ""
+          type: query
+    response:
+      status: 200
+      statusText: OK
+      headers:
+        - name: Content-Type
+          value: text/json
+      body:
+        type: json
+        data: |-
+          {
+            "jobId": "",
+            "processingStatus": "Processing",
+            "classSuggestion": {
+              "name": "",
+              "description": ""
+            }
+          }
+  - name: 404 Response
+    description: Job not found.
+    request:
+      url: "{{baseUrl}}/api/classification/suggestions/class"
+      method: GET
+      params:
+        - name: jobId
+          value: ""
+          type: query
+    response:
+      status: 404
+      statusText: Not Found
+      body:
+        type: text
+        data: ""

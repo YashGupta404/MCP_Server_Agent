@@ -401,6 +401,74 @@ export async function captureDocument(context, documentTypeId, files, businessOb
 }
 
 /**
+ * Asks the BFF whether IDP auto-classification is usable right now: a valid cached IDP token AND a
+ * public host (devtunnel) configured. Returns { connected, publicHost }.
+ */
+export async function fetchIdpStatus() {
+  const sessionId = await getSession();
+  if (!sessionId) throw new Error("Not signed in.");
+  const response = await fetch(`${CONFIG.bff.baseUrl}/api/idp/status`, {
+    method: "GET",
+    headers: { "X-BFF-Session": sessionId },
+  });
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) return { connected: false, publicHost: false };
+  return { connected: Boolean(data.connected), publicHost: Boolean(data.publicHost) };
+}
+
+/**
+ * Sends the queued files to the BFF for IDP auto-classification. The BFF classifies each file against
+ * the active system's document types and returns the detected type + confidence. Nothing is uploaded.
+ * @param {File[]} files
+ * @param {string} [businessObjectType] the record's business object type (so metadata fields can be resolved + extracted)
+ * @returns {Promise<{ results: {name:string, docType:string|null, confidence:number, reviewRequired:boolean, error?:string, fields?:{id:string,name:string,value:string,confidence:number,reviewRequired:boolean}[]}[] }>}
+ */
+export async function classifyWithIdp(files, businessObjectType) {
+  const sessionId = await getSession();
+  if (!sessionId) throw new Error("Not signed in.");
+
+  const attachments = await Promise.all((files ?? []).map(fileToAttachment));
+
+  const response = await fetch(`${CONFIG.bff.baseUrl}/api/idp/classify`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "X-BFF-Session": sessionId },
+    body: JSON.stringify({ attachments, businessObjectType: businessObjectType || null }),
+  });
+
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    const detail = data?.detail || data?.error || `HTTP ${response.status}`;
+    throw new Error(`Auto-classify failed (${response.status}): ${detail}`);
+  }
+  return { results: Array.isArray(data.results) ? data.results : [] };
+}
+
+/**
+ * Extracts metadata values from a single file for the given fields (BFF runs IDP recognition -> extraction).
+ * @param {File} file
+ * @param {{id:string,name:string}[]} fields the metadata fields to extract (id = the form input's field id)
+ * @returns {Promise<{ fields: {id:string,name:string,value:string,confidence:number,reviewRequired:boolean}[] }>}
+ */
+export async function extractWithIdp(file, fields) {
+  const sessionId = await getSession();
+  if (!sessionId) throw new Error("Not signed in.");
+
+  const attachment = await fileToAttachment(file);
+  const response = await fetch(`${CONFIG.bff.baseUrl}/api/idp/extract`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "X-BFF-Session": sessionId },
+    body: JSON.stringify({ attachment, fields: Array.isArray(fields) ? fields : [] }),
+  });
+
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    const detail = data?.detail || data?.error || `HTTP ${response.status}`;
+    throw new Error(`Metadata extraction failed (${response.status}): ${detail}`);
+  }
+  return { fields: Array.isArray(data.fields) ? data.fields : [] };
+}
+
+/**
  * Resolves the Hyland viewer URL for a document (BFF -> MCP open_document_in_viewer) so the popup
  * can open it in a new browser tab.
  * @param {string} docId

@@ -2,7 +2,7 @@
 
 import { CONFIG } from "./config.js";
 import { interactiveLogin, getSession, clearTokens, getSystemConfig, setStoredSystemConfig, clearSystemConfig } from "./auth.js";
-import { sendMessageToAgent, fetchContextDocuments, openInViewer, fetchDocumentPreview, fetchDocumentContent, uploadDocuments, captureDocument, fetchDocumentTypes, fetchDocTypeFields, fetchQueries, fetchQueryMetadata, executeQuery, resolveWorker, fetchSystemConfigs, setSystemConfig, fetchMe } from "./agent.js";
+import { sendMessageToAgent, fetchContextDocuments, openInViewer, fetchDocumentPreview, fetchDocumentContent, uploadDocuments, captureDocument, fetchDocumentTypes, fetchDocTypeFields, fetchQueries, fetchQueryMetadata, executeQuery, resolveWorker, fetchSystemConfigs, setSystemConfig, fetchMe, classifyWithIdp, extractWithIdp } from "./agent.js";
 
 import * as pdfjsLib from "./lib/pdf.mjs";
 
@@ -60,8 +60,15 @@ const els = {
   uploadMeta: document.getElementById("uploadMeta"),
   uploadRecordId: document.getElementById("uploadRecordId"),
   uploadBtn: document.getElementById("uploadBtn"),
+  idpClassifyBtn: document.getElementById("idpClassifyBtn"),
   uploadStatus: document.getElementById("uploadStatus"),
   uploadSection: document.getElementById("uploadSection"),
+  recordCard: document.querySelector(".hec__card"),
+  contextTabs: document.querySelector(".hec__tabs"),
+  docPane: document.getElementById("docPane"),
+  metaPane: document.getElementById("metaPane"),
+  deniedBlock: document.getElementById("deniedBlock"),
+  deniedMsg: document.getElementById("deniedMsg"),
   viewerOverlay: document.getElementById("viewerOverlay"),
   viewerFrame: document.getElementById("viewerFrame"),
   viewerCanvas: document.getElementById("viewerCanvas"),
@@ -93,6 +100,10 @@ let pendingFiles = [];
 /** Files queued in the panel's Upload section (separate from the chat composer). */
 /** @type {File[]} */
 let pendingUploadFiles = [];
+/** IDP auto-classification results keyed by file name: { docType, confidence, reviewRequired }. */
+let fileClassifications = {};
+/** The upload file whose type + metadata are currently shown (name), or null. */
+let selectedUploadName = null;
 /** The business object detected on the active browser tab, or null. */
 let currentContext = null;
 // Monotonic token for loadContextPanel — a newer record load bumps it so a slower, older fetch that
@@ -563,6 +574,21 @@ async function getActiveContext() {
   }
 }
 
+// A Workday worker profile can render its Employee ID a beat after the page loads, so the first
+// detection of a real subordinate can look like "no Employee ID -> not authorised". Before committing
+// to the 403, re-check for a few seconds; resolve true as soon as the context stops being notAuthorized
+// (the Employee ID appeared, or it's a normal record). `token` guards against a newer panel load.
+async function graceRecheckNotAuthorized(token) {
+  for (let i = 0; i < 6; i++) {
+    await new Promise((r) => setTimeout(r, 700));
+    if (token !== contextLoadSeq) return false;
+    const ctx = await getActiveContext();
+    if (token !== contextLoadSeq) return false;
+    if (ctx && !ctx.notAuthorized) return true;
+  }
+  return false;
+}
+
 function setContextStatus(text) {
   if (!text) {
     els.contextStatus.hidden = true;
@@ -805,8 +831,12 @@ async function loadContextPanel() {
   // Salesforce record never shows the Workday worker lookup. Unknown / no-record hosts -> generic form.
   currentLob = lobFromSource(currentContext?.source);
 
-  // Default the upload card back to visible; the "not authorised" branch below hides it.
+  // Default the record UI back to visible; the "not authorised" branch below hides it.
   if (els.uploadSection) els.uploadSection.hidden = false;
+  if (els.recordCard) els.recordCard.hidden = false;
+  if (els.contextTabs) els.contextTabs.hidden = false;
+  if (els.docPane) els.docPane.hidden = false;
+  if (els.deniedBlock) els.deniedBlock.hidden = true;
 
   // Signed in but the active tab isn't a supported record page (or is a chrome:// page).
   // Keep the panel visible with a hint + a manual entry so the feature is discoverable/testable.
@@ -827,25 +857,33 @@ async function loadContextPanel() {
   }
 
   // Workday peer / your own manager: their page shows a NAME but no Employee ID, which means the
-  // solution config doesn't let the signed-in user (arizzo) view or capture their documents. Hide the
-  // doc list, filter and upload card, and show a clear "not authorised" message.
+  // solution config doesn't let the signed-in user (arizzo) view or capture their documents. Replace the
+  // whole record area with a 403 access-restricted block; the chatbot below stays usable.
   if (currentContext.notAuthorized) {
     const who = currentContext.displayName || "this employee";
     els.contextPanel.hidden = false;
     els.manualForm.hidden = true;
     els.workerForm.hidden = true;
     els.workerResults.hidden = true;
-    selectTab("documents");
-    els.contextType.textContent = "employee";
-    els.contextName.textContent = who;
-    els.uploadRecordId.value = "";
-    els.contextDesc.hidden = true;
+    if (els.recordCard) els.recordCard.hidden = true;
+    if (els.contextTabs) els.contextTabs.hidden = true;
+    if (els.docPane) els.docPane.hidden = true;
+    if (els.metaPane) els.metaPane.hidden = true;
+    if (els.uploadSection) els.uploadSection.hidden = true;
     els.docList.innerHTML = "";
     loadedDocuments = [];
-    if (els.docSearch) els.docSearch.hidden = true;
-    if (els.queryBar) els.queryBar.hidden = true;
-    if (els.uploadSection) els.uploadSection.hidden = true;
-    setContextStatus(`You are not authorised to view or capture ${who}'s documents.`);
+
+    // A subordinate's Employee ID can render a beat late; show a neutral "checking" state first and only
+    // commit to the 403 if it's still not authorised after the page has had time to settle.
+    if (els.deniedBlock) els.deniedBlock.hidden = true;
+    setContextStatus("Checking access…");
+    const flipped = await graceRecheckNotAuthorized(loadToken);
+    if (loadToken !== contextLoadSeq) return;
+    if (flipped) return loadContextPanel();
+
+    setContextStatus(null);
+    if (els.deniedMsg) els.deniedMsg.textContent = `You are not authorised to view or capture ${who}'s documents.`;
+    if (els.deniedBlock) els.deniedBlock.hidden = false;
     return;
   }
 
@@ -1292,22 +1330,132 @@ function renderUploadFiles() {
     return;
   }
   els.uploadFiles.hidden = false;
+  const anyClassified = pendingUploadFiles.some((f) => fileClassifications[f.name]);
   pendingUploadFiles.forEach((file, index) => {
     const row = document.createElement("div");
     row.className = "hec__uploadFile";
+    if (file.name === selectedUploadName) row.classList.add("is-selected");
     const name = document.createElement("span");
     name.textContent = `${file.name} (${formatSize(file.size)})`;
+    row.appendChild(name);
+
+    // Show the IDP-detected document type + confidence once Auto-classify has run for this file.
+    const cls = fileClassifications[file.name];
+    if (cls) {
+      const badge = document.createElement("span");
+      const pct = Math.round((cls.confidence || 0) * 100);
+      if (cls.docType && cls.edited) {
+        badge.className = "hec__idpBadge hec__idpBadge--edited";
+        badge.textContent = `${cls.docType} · edited`;
+        badge.title = "Document type set manually";
+      } else if (cls.docType) {
+        badge.className = "hec__idpBadge" + (cls.reviewRequired ? " hec__idpBadge--review" : "");
+        badge.textContent = `${cls.docType} · ${pct}%`;
+        badge.title = cls.reviewRequired ? "Low confidence — please review" : "High confidence";
+      } else {
+        badge.className = "hec__idpBadge hec__idpBadge--review";
+        badge.textContent = cls.error ? "not classified" : "unknown type";
+        badge.title = cls.error || "IDP couldn't determine the type — click the file and pick one";
+      }
+      row.appendChild(badge);
+    }
+
+    // After classification, clicking a row shows THAT file's type + metadata (one at a time, compact).
+    if (anyClassified) {
+      row.classList.add("is-clickable");
+      row.title = "Show this document's type and metadata";
+      row.addEventListener("click", () => selectUploadFile(file));
+    }
+
     const remove = document.createElement("button");
     remove.type = "button";
     remove.textContent = "✕";
     remove.title = "Remove";
-    remove.addEventListener("click", () => {
-      pendingUploadFiles.splice(index, 1);
+    remove.addEventListener("click", (e) => {
+      e.stopPropagation();
+      const removed = pendingUploadFiles.splice(index, 1)[0];
+      if (removed) {
+        delete fileClassifications[removed.name];
+        if (selectedUploadName === removed.name) selectedUploadName = null;
+      }
       renderUploadFiles();
     });
-    row.append(name, remove);
+    row.append(remove);
     els.uploadFiles.appendChild(row);
   });
+}
+
+// Shows one file's detected type + its IDP-extracted metadata (prefilled). Selecting another file
+// swaps the view, so a bulk batch stays compact — metadata is shown only for the selected document.
+async function selectUploadFile(file) {
+  if (!file) return;
+  selectedUploadName = file.name;
+  renderUploadFiles();
+  const cls = fileClassifications[file.name];
+  const docType = cls?.docType;
+  const opts = Array.from(els.uploadDocType.options).map((o) => o.value);
+  // Set the dropdown to this file's type (blank if unknown/not an option) so the user can keep or change it.
+  els.uploadDocType.value = docType && opts.includes(docType) ? docType : "";
+  await loadUploadMetaFields();
+  const fieldEls = Array.from(els.uploadMeta.querySelectorAll("input[data-field-id]"));
+  let filled = 0;
+  if (fieldEls.length && cls?.fields) {
+    for (const ef of cls.fields) {
+      if (!ef.value) continue;
+      const input = els.uploadMeta.querySelector(`input[data-field-id="${CSS.escape(ef.id)}"]`);
+      if (input) { input.value = ef.value; input.classList.add("hec__metaAuto"); filled++; }
+    }
+  }
+  const tag = cls?.edited ? " (edited)" : "";
+  if (!els.uploadDocType.value) {
+    setUploadStatus(`${file.name}: unknown type — pick a document type from the list to set it.`, true);
+  } else if (!fieldEls.length) {
+    setUploadStatus(`${file.name} → ${els.uploadDocType.value}${tag} · this type has no metadata fields on this record.`);
+  } else {
+    setUploadStatus(`${file.name} → ${els.uploadDocType.value}${tag} · ${filled} field(s) filled — review, then Upload.`);
+  }
+}
+
+// Fires when the user changes the doc-type dropdown. If a file is selected, this is a MANUAL override of
+// that file's type (marked "edited"); the panel then re-renders the new type's metadata and re-extracts it.
+async function onDocTypeChanged() {
+  const newType = els.uploadDocType.value.trim();
+  const cls = selectedUploadName ? fileClassifications[selectedUploadName] : null;
+  if (cls && newType) {
+    if (!("autoDocType" in cls)) cls.autoDocType = cls.docType || null; // remember IDP's original (null if unknown)
+    cls.docType = newType;
+    cls.edited = newType !== (cls.autoDocType || null);
+    cls.uploadable = true; // user picked it explicitly; let the upload attempt it
+    renderUploadFiles();
+  }
+  await loadUploadMetaFields();
+  if (!cls || !newType) return;
+  const file = pendingUploadFiles.find((f) => f.name === selectedUploadName);
+  const fieldEls = Array.from(els.uploadMeta.querySelectorAll("input[data-field-id]"));
+  if (!file || !fieldEls.length) {
+    setUploadStatus(`${file ? file.name + " → " : ""}${newType}${cls.edited ? " (edited)" : ""} · no metadata fields on this record.`);
+    return;
+  }
+  // Re-read the document for the newly chosen type's fields.
+  const fields = fieldEls.map((inp) => ({ id: inp.dataset.fieldId, name: inp.placeholder || inp.dataset.fieldId }));
+  try {
+    setUploadStatus(`Reading ${newType} metadata from ${file.name}…`);
+    const { fields: extracted } = await extractWithIdp(file, fields);
+    // Tag importable from the rendered inputs so preview-only fields aren't sent on upload.
+    cls.fields = extracted.map((ef) => {
+      const inp = els.uploadMeta.querySelector(`input[data-field-id="${CSS.escape(ef.id)}"]`);
+      return { ...ef, importable: !(inp && inp.dataset.importable === "false") };
+    });
+    let filled = 0;
+    for (const ef of extracted) {
+      if (!ef.value) continue;
+      const input = els.uploadMeta.querySelector(`input[data-field-id="${CSS.escape(ef.id)}"]`);
+      if (input) { input.value = ef.value; input.classList.add("hec__metaAuto"); filled++; }
+    }
+    setUploadStatus(`${file.name} → ${newType}${cls.edited ? " (edited)" : ""} · ${filled} field(s) filled — review, then Upload.`);
+  } catch (e) {
+    setUploadStatus(`${file.name} → ${newType}${cls.edited ? " (edited)" : ""} · metadata fill failed (${e.message})`, false);
+  }
 }
 
 // Decides whether a record belongs to the Workday LOB (so Upload routes through the /bow capture
@@ -1338,16 +1486,21 @@ async function loadUploadMetaFields() {
     els.uploadMeta.appendChild(title);
     for (const f of fields) {
       if (!f || !f.id) continue;
+      const preview = f.importable === false; // extracted/shown but NOT stored on upload in this config
       const wrap = document.createElement("label");
       wrap.className = "hec__metaField";
       const lbl = document.createElement("span");
       lbl.className = "hec__metaLabel";
-      lbl.textContent = f.label || f.id;
+      lbl.textContent = (f.label || f.id) + (preview ? "  · preview (not stored)" : "");
       const inp = document.createElement("input");
       inp.className = "manual__input";
       inp.type = "text";
       inp.placeholder = f.label || f.id;
       inp.dataset.fieldId = f.id;
+      if (preview) {
+        inp.dataset.importable = "false";
+        inp.classList.add("hec__metaPreview");
+      }
       wrap.append(lbl, inp);
       els.uploadMeta.appendChild(wrap);
     }
@@ -1357,10 +1510,12 @@ async function loadUploadMetaFields() {
   }
 }
 
-// Collects the filled metadata inputs as [{ name, value }] for the upload/capture call.
+// Collects the filled metadata inputs as [{ name, value }] for the upload/capture call. Preview-only
+// fields (not in the config's import mappings) are excluded — UCEB would reject them.
 function collectUploadMeta() {
   const out = [];
   els.uploadMeta.querySelectorAll("input[data-field-id]").forEach((inp) => {
+    if (inp.dataset.importable === "false") return;
     const value = inp.value.trim();
     if (value) out.push({ name: inp.dataset.fieldId, value });
   });
@@ -1371,13 +1526,15 @@ function collectUploadMeta() {
 // fields (their values must not linger into the next upload).
 function resetUploadForm() {
   pendingUploadFiles = [];
+  fileClassifications = {};
+  selectedUploadName = null;
   renderUploadFiles();
   els.uploadDocType.value = "";
   els.uploadMeta.innerHTML = "";
   els.uploadMeta.hidden = true;
 }
 
-els.uploadDocType.addEventListener("change", loadUploadMetaFields);
+els.uploadDocType.addEventListener("change", onDocTypeChanged);
 
 // --- Native Queries: server-side keyword search (Phase 3) ---
 let queryMetaCache = {};
@@ -1556,8 +1713,19 @@ els.querySelect.addEventListener("change", () => renderQueryInputs(els.querySele
 els.queryRunBtn.addEventListener("click", runQuery);
 els.queryClearBtn?.addEventListener("click", clearQuerySearch);
 
+// Builds the metadata [{name,value}] to file WITH a given document. For the file currently shown in
+// the form, the live inputs win (honours manual edits); for the others, the IDP-extracted values are used.
+function metaForFile(file) {
+  if (file.name === selectedUploadName) return collectUploadMeta();
+  const cls = fileClassifications[file.name];
+  if (cls && Array.isArray(cls.fields)) {
+    return cls.fields.filter((f) => f.value && f.importable !== false).map((f) => ({ name: f.id, value: f.value }));
+  }
+  return [];
+}
+
 els.uploadBtn.addEventListener("click", async () => {
-  const docType = els.uploadDocType.value.trim();
+  const dropdownType = els.uploadDocType.value.trim();
   const recordId = els.uploadRecordId.value.trim();
   const businessObjectType = currentContext?.businessObjectType || els.contextType.textContent?.trim();
 
@@ -1565,8 +1733,10 @@ els.uploadBtn.addEventListener("click", async () => {
     setUploadStatus("Choose a file to upload first.", true);
     return;
   }
-  if (!docType) {
-    setUploadStatus("Enter a document type.", true);
+  // Each file files as its own IDP-detected type; fall back to the dropdown for any unclassified file.
+  const anyClassified = pendingUploadFiles.some((f) => fileClassifications[f.name]?.docType);
+  if (!dropdownType && !anyClassified) {
+    setUploadStatus("Enter a document type (or run Auto-classify).", true);
     return;
   }
   if (!recordId || !businessObjectType || businessObjectType === "No record") {
@@ -1580,25 +1750,97 @@ els.uploadBtn.addEventListener("click", async () => {
   els.uploadBtn.disabled = true;
   setUploadStatus(`Uploading ${pendingUploadFiles.length} file(s)…`);
   try {
-    // One button, correct store: Salesforce records go through the CIC upload/attach path,
-    // Workday records go through the /bow capture path.
-    const meta = collectUploadMeta();
-    const result = workday
-      ? await captureDocument(ctx, docType, pendingUploadFiles, [], { additionalAttributes: meta })
-      : await uploadDocuments(ctx, docType, pendingUploadFiles, meta);
-    const filed = (workday ? result.captured : result.uploaded) || [];
-    const errors = result.errors || [];
+    const filed = [];
+    const errors = [];
+    const skipped = [];
+    // Upload each file with ITS OWN document type + metadata (so a mixed batch files correctly).
+    for (const file of pendingUploadFiles) {
+      const cls = fileClassifications[file.name];
+      const fileDocType = cls?.docType || dropdownType;
+      if (!fileDocType) {
+        errors.push(`${file.name}: no document type`);
+        continue;
+      }
+      // Skip files whose detected type isn't configured for THIS record type (UCEB would reject them).
+      if (cls && cls.docType && cls.uploadable === false) {
+        skipped.push(`${file.name} (${cls.docType})`);
+        continue;
+      }
+      const meta = metaForFile(file);
+      try {
+        const result = workday
+          ? await captureDocument(ctx, fileDocType, [file], [], { additionalAttributes: meta })
+          : await uploadDocuments(ctx, fileDocType, [file], meta);
+        const ok = (workday ? result.captured : result.uploaded) || [];
+        filed.push(...ok);
+        errors.push(...(result.errors || []));
+      } catch (e) {
+        errors.push(`${file.name}: ${e.message}`);
+      }
+    }
+    const parts = [];
+    if (filed.length) parts.push(`Uploaded: ${filed.join(", ")}`);
+    if (skipped.length) parts.push(`Skipped (type not valid for this ${businessObjectType}): ${skipped.join(", ")}`);
+    if (errors.length) parts.push(`Failed: ${errors.join("; ")}`);
     if (filed.length) {
-      setUploadStatus(`Uploaded: ${filed.join(", ")}${errors.length ? ` (failed: ${errors.join("; ")})` : ""}`);
+      setUploadStatus(parts.join(" · "), errors.length > 0);
       resetUploadForm();
-      // Refresh the document list so the new file appears.
       loadContextPanel();
     } else {
-      setUploadStatus(`Upload failed: ${errors.join("; ") || "unknown error"}`, true);
+      setUploadStatus(parts.join(" · ") || "Upload failed: unknown error", true);
     }
   } catch (err) {
     setUploadStatus(`Upload failed: ${err.message}`, true);
   } finally {
+    els.uploadBtn.disabled = false;
+  }
+});
+
+// Auto-classify: asks IDP to detect each queued file's document type, fills in the detected type +
+// confidence badge, and pre-selects the doc-type dropdown. Nothing is uploaded — the user reviews
+// the badges and still clicks Upload.
+els.idpClassifyBtn.addEventListener("click", async () => {
+  if (!pendingUploadFiles.length) {
+    setUploadStatus("Add file(s) first, then Auto-classify.", true);
+    return;
+  }
+  els.idpClassifyBtn.disabled = true;
+  els.uploadBtn.disabled = true;
+  const boType = currentContext?.businessObjectType || els.contextType.textContent?.trim();
+  setUploadStatus(`Classifying ${pendingUploadFiles.length} file(s) with IDP…`);
+  try {
+    const { results } = await classifyWithIdp(pendingUploadFiles, boType);
+    for (const r of results) {
+      fileClassifications[r.name] = {
+        docType: r.docType || null,
+        confidence: r.confidence || 0,
+        reviewRequired: Boolean(r.reviewRequired),
+        error: r.error,
+        fields: Array.isArray(r.fields) ? r.fields : [],
+        uploadable: r.uploadable !== false,
+      };
+    }
+    renderUploadFiles();
+
+    const detected = results.filter((r) => r.docType).length;
+    if (!detected) {
+      setUploadStatus("Could not detect a type — pick one manually.", true);
+      return;
+    }
+    // Auto-select the most useful file to show first: the first whose type actually has extracted
+    // metadata on this record, else the first classified file. Clicking any file row swaps the view.
+    const opts = Array.from(els.uploadDocType.options).map((o) => o.value);
+    const withFields = pendingUploadFiles.find((f) => {
+      const c = fileClassifications[f.name];
+      return c?.docType && opts.includes(c.docType) && (c.fields || []).some((x) => x.value);
+    });
+    const firstClassified = pendingUploadFiles.find((f) => fileClassifications[f.name]?.docType);
+    const toSelect = withFields || firstClassified;
+    if (toSelect) await selectUploadFile(toSelect);
+  } catch (err) {
+    setUploadStatus(`Auto-classify failed: ${err.message}`, true);
+  } finally {
+    els.idpClassifyBtn.disabled = false;
     els.uploadBtn.disabled = false;
   }
 });
