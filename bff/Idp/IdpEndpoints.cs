@@ -137,40 +137,61 @@ static class IdpEndpoints
             }
 
             var attachments = req.Attachments!.Where(a => a is not null && !string.IsNullOrWhiteSpace(a.DataBase64)).ToList();
+
+            // Stage every file first so IDP can be handed ALL of them in ONE classification job (far fewer
+            // round-trips than a job per file). Preserve attachment order for the response.
+            var staged = new List<(string Name, string? Id, string? SourceUrl, string? InvalidError)>();
+            foreach (var att in attachments)
+            {
+                var name = string.IsNullOrWhiteSpace(att.Name) ? "upload" : Path.GetFileName(att.Name);
+                byte[] bytes;
+                try { bytes = Convert.FromBase64String(att.DataBase64!); }
+                catch { staged.Add((name, null, null, "invalid file data")); continue; }
+                var id = Guid.NewGuid().ToString("N");
+                idpFiles[id] = (bytes, string.IsNullOrWhiteSpace(att.Mime) ? "application/octet-stream" : att.Mime!, name);
+                stagedIds.Add(id);
+                staged.Add((name, id, $"{publicBase}/api/idp/file/{id}", null));
+            }
+
             object[] results;
             try
             {
-                var tasks = attachments.Select(async att =>
+                // 1) ONE classification job for all valid files; map the result back to each file.
+                var classByRef = new Dictionary<string, IdpClient.BatchClassResult>(StringComparer.Ordinal);
+                var validFiles = staged.Where(s => s.Id is not null).Select(s => (s.Id!, s.SourceUrl!)).ToList();
+                if (validFiles.Count > 0)
                 {
-                    var name = string.IsNullOrWhiteSpace(att.Name) ? "upload" : Path.GetFileName(att.Name);
-                    byte[] bytes;
-                    try { bytes = Convert.FromBase64String(att.DataBase64); }
-                    catch { return (object)new { name, docType = (string?)null, confidence = 0.0, reviewRequired = true, error = "invalid file data", fields = Array.Empty<object>(), uploadable = false }; }
+                    using var cCts = new CancellationTokenSource(TimeSpan.FromSeconds(180));
+                    var (byRef, cErr) = await IdpClient.ClassifyBatchAsync(httpFactory, idp, token, validFiles, candidateClasses, log, cCts.Token);
+                    classByRef = byRef;
+                    if (cErr is not null) log.LogWarning("/api/idp/classify: batch classify -> {Error}", cErr);
+                }
 
-                    var id = Guid.NewGuid().ToString("N");
-                    idpFiles[id] = (bytes, string.IsNullOrWhiteSpace(att.Mime) ? "application/octet-stream" : att.Mime!, name);
-                    stagedIds.Add(id);
-                    var sourceUrl = $"{publicBase}/api/idp/file/{id}";
+                // 2) Extract each classified file's metadata CONCURRENTLY (fields depend on the detected type).
+                var tasks = staged.Select(async s =>
+                {
+                    if (s.Id is null)
+                        return (object)new { name = s.Name, docType = (string?)null, confidence = 0.0, reviewRequired = true, error = s.InvalidError, fields = Array.Empty<object>(), uploadable = false };
 
-                    await gate.WaitAsync();
-                    try
+                    classByRef.TryGetValue(s.Id, out var cls);
+                    var docType = cls?.DocType;
+                    var confidence = cls?.Confidence ?? 0;
+                    var reviewRequired = cls?.ReviewRequired ?? true;
+                    var error = cls?.Error;
+
+                    object[] fields = Array.Empty<object>();
+                    if (!string.IsNullOrWhiteSpace(docType) && !string.IsNullOrWhiteSpace(boType))
                     {
-                        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(180));
-                        var (docType, confidence, reviewRequired, error) =
-                            await IdpClient.ClassifyAsync(httpFactory, idp, token, sourceUrl, candidateClasses, log, cts.Token);
-                        if (error is not null)
-                            log.LogWarning("/api/idp/classify: {Name} -> {Error}", name, error);
-
-                        // If we got a type (and a record context), extract that type's metadata values in the same pass.
-                        object[] fields = Array.Empty<object>();
-                        if (!string.IsNullOrWhiteSpace(docType) && !string.IsNullOrWhiteSpace(boType))
+                        var defs = await FieldsFor(docType!);
+                        if (defs.Count > 0)
                         {
-                            var defs = await FieldsFor(docType!);
-                            if (defs.Count > 0)
+                            await gate.WaitAsync();
+                            try
                             {
-                                var (vals, exErr) = await IdpClient.ExtractAsync(httpFactory, idp, token, sourceUrl,
+                                using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(180));
+                                var (vals, exErr) = await IdpClient.ExtractAsync(httpFactory, idp, token, s.SourceUrl!,
                                     defs.Select(d => (d.Id, d.Name)).ToList(), log, cts.Token);
-                                if (exErr is not null) log.LogWarning("/api/idp/classify: extract {Name} -> {Error}", name, exErr);
+                                if (exErr is not null) log.LogWarning("/api/idp/classify: extract {Name} -> {Error}", s.Name, exErr);
                                 fields = vals.Select(v =>
                                 {
                                     bool imp = true;
@@ -179,10 +200,10 @@ static class IdpEndpoints
                                     return (object)new { id = v.Id, name = v.Name, value = v.Value, confidence = Math.Round(v.Confidence, 4), reviewRequired = v.ReviewRequired, importable = imp };
                                 }).ToArray();
                             }
+                            finally { gate.Release(); }
                         }
-                        return (object)new { name, docType, confidence = Math.Round(confidence, 4), reviewRequired, error, fields, uploadable = configuredTypes == null || (docType != null && configuredTypes.Contains(docType)) };
                     }
-                    finally { gate.Release(); }
+                    return (object)new { name = s.Name, docType, confidence = Math.Round(confidence, 4), reviewRequired, error, fields, uploadable = configuredTypes == null || (docType != null && configuredTypes.Contains(docType)) };
                 });
                 results = await Task.WhenAll(tasks);
             }

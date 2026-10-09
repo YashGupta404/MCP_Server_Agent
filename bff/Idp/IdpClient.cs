@@ -194,6 +194,135 @@ static class IdpClient
         }
     }
 
+    public sealed record BatchClassResult(string FileReference, string? DocType, double Confidence, bool ReviewRequired, string? Error);
+
+    // Classifies MANY documents in a SINGLE IDP job: one POST /api/classification with ALL files in
+    // contentFileReferences (treatEachFileAsDocument=true), instead of one job per file — far fewer
+    // round-trips / polls. Each result document is mapped back to its file by contentFileReferenceIndex,
+    // falling back to document order (IDP returns one document per file, in input order). Keyed by fileReference.
+    public static async Task<(Dictionary<string, BatchClassResult> ByRef, string? Error)> ClassifyBatchAsync(
+        IHttpClientFactory factory, IdpOptions idp, string token,
+        IReadOnlyList<(string FileReference, string SourceUrl)> files,
+        IReadOnlyList<(string Name, string Description)> candidateClasses, ILogger log, CancellationToken ct)
+    {
+        var byRef = new Dictionary<string, BatchClassResult>(StringComparer.Ordinal);
+        if (files.Count == 0) return (byRef, null);
+
+        var http = factory.CreateClient();
+        http.Timeout = TimeSpan.FromSeconds(180);
+        var baseUrl = idp.BaseUrl.TrimEnd('/');
+
+        var classes = candidateClasses
+            .Where(c => !string.IsNullOrWhiteSpace(c.Name))
+            .Select(c => new
+            {
+                id = Guid.NewGuid().ToString(),
+                name = c.Name,
+                description = string.IsNullOrWhiteSpace(c.Description) ? $"A '{c.Name}' document." : c.Description,
+                ignoreForAuto = false,
+            }).ToArray();
+
+        var contentRefs = files.Select(f => new { fileReference = f.FileReference, sourceUrl = f.SourceUrl }).ToArray();
+
+        var body = new
+        {
+            correlationId = Guid.NewGuid().ToString(),
+            configuration = new
+            {
+                executionProfile = new { profileId = idp.ClassificationProfileId, versionId = idp.ClassificationProfileVersion },
+                documentClassDefinitions = classes,
+                treatEachFileAsDocument = true,
+                includeClassCandidateReasoning = true,
+                reviewThreshold = 0.7,
+                classAssignmentThreshold = 0.6,
+                classCandidatesMinDistance = 0.05,
+                pageLimit = 10,
+            },
+            contentFileReferences = contentRefs,
+        };
+
+        async Task<HttpResponseMessage> SendAsync(HttpMethod method, string url, object? payload)
+        {
+            var msg = new HttpRequestMessage(method, url);
+            msg.Headers.TryAddWithoutValidation("Authorization", $"Bearer {token}");
+            if (payload is not null)
+                msg.Content = new StringContent(JsonSerializer.Serialize(payload), Encoding.UTF8, "application/json");
+            return await http.SendAsync(msg, ct);
+        }
+
+        string? jobId;
+        using (var resp = await SendAsync(HttpMethod.Post, $"{baseUrl}/api/classification", body))
+        {
+            var text = await resp.Content.ReadAsStringAsync(ct);
+            if (!resp.IsSuccessStatusCode)
+                return (byRef, $"classification submit failed ({(int)resp.StatusCode}): {text}");
+            jobId = JsonNode.Parse(text)?["jobId"]?.GetValue<string>();
+        }
+        if (string.IsNullOrWhiteSpace(jobId))
+            return (byRef, "no jobId returned");
+
+        // One poll loop for the whole batch (allow a bit longer since it covers every file).
+        for (int i = 0; i < 40; i++)
+        {
+            await Task.Delay(1500, ct);
+            using var sResp = await SendAsync(HttpMethod.Get, $"{baseUrl}/api/classification/job/status?jobId={jobId}", null);
+            var sText = await sResp.Content.ReadAsStringAsync(ct);
+            var status = JsonNode.Parse(sText)?["jobStatus"]?.GetValue<string>();
+            if (!string.IsNullOrWhiteSpace(status) && status.IndexOf("Succeeded", StringComparison.OrdinalIgnoreCase) >= 0)
+                break;
+            if (!string.IsNullOrWhiteSpace(status) &&
+                (status.IndexOf("Failed", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                 status.IndexOf("Error", StringComparison.OrdinalIgnoreCase) >= 0))
+                return (byRef, $"classification job {status}");
+        }
+
+        using var rResp = await SendAsync(HttpMethod.Get, $"{baseUrl}/api/classification?jobId={jobId}", null);
+        var rText = await rResp.Content.ReadAsStringAsync(ct);
+        if (!rResp.IsSuccessStatusCode)
+            return (byRef, $"classification result failed ({(int)rResp.StatusCode}): {rText}");
+
+        try
+        {
+            var docs = JsonNode.Parse(rText)?["documents"]?.AsArray();
+            if (docs is null) return (byRef, "no documents in result");
+
+            int pos = 0;
+            foreach (var doc in docs)
+            {
+                int idx = FileIndexOf(doc) ?? pos;
+                pos++;
+                if (idx < 0 || idx >= files.Count) continue;
+                var fref = files[idx].FileReference;
+
+                var className = doc?["className"]?.GetValue<string>();
+                var confidence = doc?["confidence"]?.GetValue<double>() ?? 0;
+                var reviewStatus = doc?["reviewStatus"]?.GetValue<string>() ?? "";
+                var reviewRequired = !reviewStatus.Equals("ReviewNotRequired", StringComparison.OrdinalIgnoreCase);
+                var docType = (string.IsNullOrWhiteSpace(className) || className!.Equals("Undefined", StringComparison.OrdinalIgnoreCase))
+                    ? null : className;
+                byRef[fref] = new BatchClassResult(fref, docType, confidence, docType is null || reviewRequired, null);
+            }
+            return (byRef, null);
+        }
+        catch (Exception ex)
+        {
+            return (byRef, $"could not parse result: {ex.Message}");
+        }
+
+        // Which input file a result document came from, via contentFileReferenceIndex (document-level or
+        // on any page). null => caller falls back to document order.
+        static int? FileIndexOf(JsonNode? doc)
+        {
+            static int? Read(JsonNode? n) { try { return n?.GetValue<int>(); } catch { return null; } }
+            if (Read(doc?["contentFileReferenceIndex"]) is int d) return d;
+            var pages = doc?["pages"]?.AsArray();
+            if (pages is not null)
+                foreach (var p in pages)
+                    if (Read(p?["contentFileReferenceIndex"]) is int v) return v;
+            return null;
+        }
+    }
+
     public sealed record ExtractedField(string Id, string Name, string Value, double Confidence, bool ReviewRequired);
 
     // Recognizes (OCR) the document then extracts values for the given fields (recognition is a required
