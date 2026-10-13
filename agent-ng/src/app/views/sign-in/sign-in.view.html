@@ -1,0 +1,22 @@
+<section class="signin">
+  <div class="signin__card">
+    <div class="signin__logo">
+      <img class="signin__logoImg" src="hyland-agent-logo.png" alt="Hyland Integrations Agent" />
+    </div>
+
+    <h1 class="signin__title">Sign in to Hyland</h1>
+    <p class="signin__subtitle">Connect your content repositories</p>
+
+    <button
+      type="button"
+      class="signin__btn signin__btn--primary"
+      [disabled]="busy"
+      (click)="signIn()"
+    >
+      <span *ngIf="busy" class="signin__spinner" aria-hidden="true"></span>
+      {{ busy ? 'Opening Hyland sign-in…' : 'Continue' }}
+    </button>
+
+    <p class="signin__error" *ngIf="error">{{ error }}</p>
+  </div>
+</section>

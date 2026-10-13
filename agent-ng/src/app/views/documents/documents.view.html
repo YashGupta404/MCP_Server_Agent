@@ -1,0 +1,442 @@
+<section class="docs">
+  <header class="docs__header">
+    <div class="docs__brand">
+      <img class="docs__logo" src="hyland-agent-logo.png" alt="" />
+      <div class="docs__titles">
+        <div class="docs__appName">Hyland Integrations Agent</div>
+        <div class="docs__appTag">DOCUMENT INTELLIGENCE</div>
+      </div>
+    </div>
+    <div class="docs__headerRight">
+      <span class="docs__avatar">
+        JA
+        <span class="docs__avatarBadge" aria-hidden="true">
+          <svg viewBox="0 0 12 12" fill="none"><path d="M3 6.2 L5 8.2 L9 4.2" stroke="#ffffff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </span>
+      </span>
+      <button class="docs__close" type="button" (click)="close()" aria-label="Close">
+        <svg viewBox="0 0 24 24" fill="none"><path d="M6 6l12 12M18 6L6 18" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+      </button>
+    </div>
+  </header>
+
+  <div class="docs__scroll">
+    <!-- connected system card -->
+    <div class="docs__card docs__systemCard">
+      <div class="docs__systemTop">
+        <svg class="docs__cloud" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+          <path d="M6.4 18.2h10.7a3.85 3.85 0 0 0 .56-7.66 5.9 5.9 0 0 0-11.18-1.8 4.15 4.15 0 0 0-.09 8.44Z"
+            stroke="#27B5A8" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
+          <path d="M8.9 12.4 10.9 14.4 15.3 10" stroke="#27B5A8" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" />
+        </svg>
+        <button class="docs__systemName" type="button" (click)="changeSystem()" title="Change content system">
+          {{ activeSystem || '\u2014' }}
+        </button>
+        <div class="docs__systemActions">
+          <button class="docs__iconBtn" type="button" (click)="reload()" [disabled]="loading" aria-label="Refresh">
+            <svg viewBox="0 0 24 24" fill="none">
+              <path d="M20 12a8 8 0 1 1-2.34-5.66" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
+              <path d="M20 4v5h-5" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
+            </svg>
+          </button>
+          <button class="docs__iconBtn" type="button" (click)="systemCollapsed = !systemCollapsed" aria-label="Collapse">
+            <svg viewBox="0 0 24 24" fill="none" [class.docs__chev--down]="systemCollapsed">
+              <path d="M6 15l6-6 6 6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
+            </svg>
+          </button>
+        </div>
+      </div>
+      <div class="docs__systemRecord" *ngIf="context?.businessObjectId && !systemCollapsed">
+        <svg class="docs__docIcon" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+          <path d="M7.2 2.7h6.9L18.9 7v14c0 .72-.58 1.3-1.3 1.3H7.2c-.72 0-1.3-.58-1.3-1.3V4c0-.72.58-1.3 1.3-1.3Z" fill="#4B40B5" />
+          <path d="M14.1 2.7V7h4.8" fill="#6B63D8" />
+          <path d="M8.9 10.3h6.5M8.9 13.35h6.5M8.9 16.4h4.8" stroke="#ffffff" stroke-width="1.8" stroke-linecap="round" />
+        </svg>
+        <span class="docs__recordType">{{ context?.businessObjectType }}</span>
+        <span class="docs__recordSep">&middot;</span>
+        <span class="docs__recordId">ID {{ context?.businessObjectId }}</span>
+      </div>
+    </div>
+
+    <!-- main card -->
+    <div class="docs__card docs__mainCard" [class.docs__mainCard--fill]="tab === 'chat'">
+      <div class="docs__tabs">
+        <button type="button" [class.docs__tab--active]="tab === 'documents'" (click)="tab = 'documents'">Documents</button>
+        <button type="button" [class.docs__tab--active]="tab === 'chat'" (click)="tab = 'chat'">Talk with agent</button>
+      </div>
+
+      <!-- Documents tab -->
+      <div class="docs__content" *ngIf="tab === 'documents'">
+        <div class="docs__searchRow">
+          <div class="docs__searchBox">
+            <span class="docs__searchIcon" aria-hidden="true"></span>
+            <input
+              type="text"
+              [(ngModel)]="search"
+              (ngModelChange)="onSearch()"
+              placeholder="Search by name, type, owner or ID"
+            />
+          </div>
+          <button
+            class="docs__query"
+            type="button"
+            [class.docs__query--active]="queryOpen"
+            (click)="toggleQuery()"
+            title="Search by keyword"
+          >
+            <span class="docs__filterIcon" aria-hidden="true"></span>Query
+          </button>
+        </div>
+
+        <!-- server-side query (keyword search) panel -->
+        <div class="docs__queryPanel" *ngIf="queryOpen">
+          <div class="docs__qHead">
+            <span class="docs__qHeadTitle">Search the repository with a saved query</span>
+            <button class="docs__qReset" type="button" *ngIf="selectedQueryId || queryActive" (click)="clearQuery()">Reset</button>
+          </div>
+
+          <div class="docs__qField">
+            <label class="docs__qLabel">Saved query</label>
+            <select class="docs__qControl" [(ngModel)]="selectedQueryId" (ngModelChange)="onQueryChange()" [disabled]="queriesLoading">
+              <option value="">{{ queriesLoading ? 'Loading\u2026' : 'Choose a saved query' }}</option>
+              <option *ngFor="let q of queries" [value]="q.id">{{ q.name || q.id }}</option>
+            </select>
+          </div>
+
+          <div class="docs__qRow" *ngFor="let inp of queryInputs">
+            <div class="docs__qField docs__qField--match">
+              <label class="docs__qLabel">Match</label>
+              <select class="docs__qControl" [(ngModel)]="queryOps[inp.id]">
+                <option *ngFor="let op of operatorsFor(inp)" [value]="op">{{ friendlyOperator(op) }}</option>
+              </select>
+            </div>
+            <div class="docs__qField docs__qField--val">
+              <label class="docs__qLabel">{{ inp.name || inp.id }}<span class="docs__req" *ngIf="inp.required"> *</span></label>
+              <input
+                class="docs__qControl"
+                type="text"
+                [placeholder]="'Enter ' + (inp.name || inp.id).toLowerCase()"
+                [(ngModel)]="queryValues[inp.id]"
+                [attr.maxlength]="inp.maxLength || null"
+              />
+            </div>
+          </div>
+
+          <button class="docs__qRun" type="button" [disabled]="querySearching || !selectedQueryId" (click)="runQuery()">
+            {{ querySearching ? 'Searching\u2026' : 'Run query' }}
+          </button>
+
+          <p class="docs__queryStatus" *ngIf="queryStatus" [class.docs__queryStatus--error]="queryStatusError">{{ queryStatus }}</p>
+        </div>
+
+        <div class="docs__state" *ngIf="loading">Loading documents&hellip;</div>
+        <p class="docs__error" *ngIf="error">{{ error }}</p>
+        <p class="docs__state" *ngIf="!loading && !error && !context?.businessObjectId">
+          Open a Salesforce / Workday record in this tab, then press refresh.
+        </p>
+        <p class="docs__debug" *ngIf="!loading && !context?.businessObjectId && ctxDebug">{{ ctxDebug }}</p>
+        <p class="docs__state" *ngIf="!loading && !error && context?.businessObjectId && documents.length === 0">
+          No content linked to this record yet.
+        </p>
+
+        <table class="docs__table" *ngIf="!loading && !error && paged.length">
+          <thead>
+            <tr>
+              <th *ngFor="let col of displayColumns; trackBy: trackByCol">{{ col }}</th>
+              <th class="docs__actionsCol"></th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr
+              *ngFor="let d of paged; trackBy: trackByDocId"
+              class="docs__row"
+              (click)="preview(d)"
+              [title]="'Open in the Hyland viewer (docId ' + d.docId + ')'"
+            >
+              <td
+                *ngFor="let col of displayColumns; trackBy: trackByCol"
+                [class.docs__nameCell]="isNameCol(col)"
+                [title]="cell(d, col)"
+              >
+                <span class="docs__cellInner">
+                  <span class="docs__fileIcon docs__fileIcon--{{ fileKind(d) }}" *ngIf="isNameCol(col)">
+                    {{ fileExt(d) ? fileExt(d).substr(0, 3).toUpperCase() : 'DOC' }}
+                  </span>
+                  <span class="docs__cellText">{{ cell(d, col) }}</span>
+                </span>
+              </td>
+              <td class="docs__actionsCell">
+                <button class="docs__kebab" type="button" (click)="toggleMenu(d, $event)" aria-label="Actions">
+                  &#8942;
+                </button>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+
+        <div class="docs__pager" *ngIf="!loading && !error && filtered.length">
+          <span class="docs__pagerInfo">Items per page:</span>
+          <select class="docs__select docs__pagerSelect" [(ngModel)]="pageSize" (ngModelChange)="onPageSizeChange()">
+            <option *ngFor="let size of pageSizeOptions" [ngValue]="size">{{ size }}</option>
+          </select>
+          <span class="docs__pagerRange">{{ rangeLabel() }}</span>
+          <button type="button" (click)="prev()" [disabled]="page <= 1" aria-label="Previous">&lsaquo;</button>
+          <button type="button" (click)="next()" [disabled]="page >= totalPages" aria-label="Next">&rsaquo;</button>
+        </div>
+      </div>
+
+      <!-- Talk with agent tab -->
+      <div class="docs__content docs__chat" *ngIf="tab === 'chat'">
+        <div class="docs__chatLog" #chatLog>
+          <div class="docs__chatEmpty" *ngIf="!chatTurns.length">
+            <svg class="docs__chatArt" viewBox="0 0 120 104" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+              <circle cx="60" cy="48" r="40" fill="#EFEDFB" />
+              <path
+                d="M34 20 H66 A10 10 0 0 1 76 30 V44 A10 10 0 0 1 66 54 H48 L38 63 L40 54 H34 A10 10 0 0 1 24 44 V30 A10 10 0 0 1 34 20 Z"
+                fill="#FFFFFF"
+                stroke="#DAD6F2"
+                stroke-width="2"
+                stroke-linejoin="round"
+              />
+              <rect x="33" y="30" width="30" height="4" rx="2" fill="#DAD6F2" />
+              <rect x="33" y="40" width="19" height="4" rx="2" fill="#DAD6F2" />
+              <path
+                d="M61 42 H85 A11 11 0 0 1 96 53 V63 A11 11 0 0 1 85 74 H70 L60 83 L62 74 H61 A11 11 0 0 1 50 63 V53 A11 11 0 0 1 61 42 Z"
+                fill="#4F46C7"
+              />
+              <circle cx="63" cy="58" r="3.4" fill="#FFFFFF" />
+              <circle cx="73" cy="58" r="3.4" fill="#FFFFFF" />
+              <circle cx="83" cy="58" r="3.4" fill="#FFFFFF" />
+              <ellipse cx="60" cy="95" rx="29" ry="4.5" fill="#E7E3F7" />
+            </svg>
+            <div class="docs__chatTitle">Start a conversation</div>
+            <div class="docs__chatSub">Ask about documents, or attach files with the + button</div>
+          </div>
+
+          <div *ngFor="let t of chatTurns" class="docs__msgRow docs__msgRow--{{ t.role }}">
+            <span class="docs__msgAvatar" *ngIf="t.role !== 'user'" aria-hidden="true"></span>
+            <div class="docs__msg docs__msg--{{ t.role }}">
+              <div class="docs__msgText docs__md" *ngIf="t.role === 'agent'" [innerHTML]="t.html"></div>
+              <div class="docs__msgText" *ngIf="t.role !== 'agent'">{{ t.text }}</div>
+              <div class="docs__msgFiles" *ngIf="t.files?.length">
+                <span class="docs__msgFile" *ngFor="let f of t.files">&#128196; {{ f }}</span>
+              </div>
+            </div>
+          </div>
+
+          <div class="docs__msgRow docs__msgRow--agent" *ngIf="chatSending">
+            <span class="docs__msgAvatar" aria-hidden="true"></span>
+            <div class="docs__msg docs__msg--typing">
+              <span class="docs__typing" aria-label="Agent is thinking">
+                <span></span><span></span><span></span>
+              </span>
+            </div>
+          </div>
+        </div>
+
+        <div class="docs__chatDock">
+          <div class="docs__chips">
+            <button type="button" class="docs__chip" (click)="quickPrompt('I want to search a document')">I want to search a document</button>
+            <button type="button" class="docs__chip" (click)="quickPrompt('Show my documents')">Show my documents</button>
+          </div>
+
+          <ul class="docs__chatFiles" *ngIf="chatFiles.length">
+            <li *ngFor="let f of chatFiles; let i = index">
+              <span class="docs__chatFileName" [title]="f.name">{{ f.name }}</span>
+              <button type="button" (click)="removeChatFile(i)" aria-label="Remove">&times;</button>
+            </li>
+          </ul>
+
+          <div class="docs__ask">
+            <button class="docs__askPlus" type="button" (click)="chatFileInput.click()" [disabled]="chatSending" aria-label="Attach">
+              <svg viewBox="0 0 24 24" fill="none"><path d="M12 5v14M5 12h14" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+            </button>
+            <input #chatFileInput type="file" hidden multiple (change)="onChatFilePick($event)" />
+            <input
+              type="text"
+              [(ngModel)]="chatInput"
+              (keydown.enter)="sendChat()"
+              placeholder="Ask the agent&hellip;"
+              [disabled]="chatSending"
+            />
+            <button
+              class="docs__send"
+              type="button"
+              (click)="sendChat()"
+              [disabled]="chatSending || (!chatInput.trim() && !chatFiles.length)"
+              aria-label="Send"
+            >
+              <svg viewBox="0 0 24 24" fill="none"><path d="M4.3 11.2 19 4.6a.6.6 0 0 1 .82.76l-5.6 14.1a.6.6 0 0 1-1.11.03l-2.5-5.2-5.3-2.1a.6.6 0 0 1 0-1Z" fill="currentColor"/></svg>
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- upload card -->
+    <div class="docs__card docs__uploadCard" *ngIf="tab === 'documents' && context?.businessObjectId">
+      <div class="docs__uploadTitle">Add documents to this {{ context?.businessObjectType }}</div>
+      <div class="docs__uploadSub">Files are stored in the connected repository and linked to this record.</div>
+
+      <div
+        class="docs__dropzone"
+        [class.docs__dropzone--over]="dragOver"
+        (click)="fileInput.click()"
+        (drop)="onDrop($event)"
+        (dragover)="onDragOver($event)"
+        (dragleave)="onDragLeave()"
+      >
+        <span class="docs__dropIcon" aria-hidden="true"></span>
+        <div class="docs__dropText">Drag a file here, or <span class="docs__dropLink">browse your computer</span></div>
+        <input #fileInput type="file" multiple hidden (change)="onFilePick($event)" />
+      </div>
+
+      <ul class="docs__fileList" *ngIf="uploadFiles.length">
+        <li *ngFor="let f of uploadFiles; let i = index">
+          <button
+            type="button"
+            class="docs__uploadFile"
+            [class.docs__uploadFile--clickable]="anyClassifiedFiles"
+            [class.docs__uploadFile--selected]="selectedUploadName === f.name"
+            (click)="anyClassifiedFiles ? selectUploadFile(f) : null"
+            [title]="anyClassifiedFiles ? 'Show this document\'s type and metadata' : f.name"
+          >
+            <span class="docs__fileName" [title]="f.name">{{ f.name }}</span>
+            <span
+              class="docs__idpBadge"
+              *ngIf="fileClassifications[f.name] as cls"
+              [class.docs__idpBadge--review]="(!cls.docType) || cls.reviewRequired"
+              [class.docs__idpBadge--edited]="cls.docType && cls.edited"
+              [title]="cls.error || (cls.reviewRequired ? 'Low confidence — please review' : 'High confidence')"
+            >
+              <ng-container *ngIf="cls.docType && cls.edited">{{ cls.docType }} · edited</ng-container>
+              <ng-container *ngIf="cls.docType && !cls.edited">{{ cls.docType }} · {{ (cls.confidence * 100) | number:'1.0-0' }}%</ng-container>
+              <ng-container *ngIf="!cls.docType">{{ cls.error ? 'not classified' : 'unknown type' }}</ng-container>
+            </span>
+          </button>
+          <button type="button" class="docs__fileRemove" (click)="removeFile(i)" aria-label="Remove">&times;</button>
+        </li>
+      </ul>
+
+      <label class="docs__field">
+        <span class="docs__fieldLabel">Document type</span>
+        <select class="docs__select" [(ngModel)]="selectedDocType" (ngModelChange)="onDocTypeChange()" [disabled]="docTypesLoading">
+          <option value="" disabled selected>
+            {{ docTypesLoading ? 'Loading document types\u2026' : (docTypesError ? 'Couldn\u2019t load types' : 'Choose a document type') }}
+          </option>
+          <option *ngFor="let t of docTypes" [value]="t">{{ t }}</option>
+        </select>
+      </label>
+
+      <div class="docs__metaFields" *ngIf="selectedDocType">
+        <div class="docs__metaState" *ngIf="docTypeFieldsLoading">Loading metadata fields\u2026</div>
+        <div class="docs__metaState docs__metaState--error" *ngIf="docTypeFieldsError">{{ docTypeFieldsError }}</div>
+        <div class="docs__metaState" *ngIf="!docTypeFieldsLoading && !docTypeFieldsError && !docTypeFields.length">
+          This document type has no metadata fields on this record.
+        </div>
+
+        <div class="docs__metaTitle" *ngIf="!docTypeFieldsLoading && docTypeFields.length">Additional metadata (optional)</div>
+
+        <ng-container *ngFor="let f of docTypeFields; trackBy: trackByDocTypeField">
+          <label class="docs__field docs__field--meta">
+            <span class="docs__fieldLabel">{{ f.label || f.id }}<span *ngIf="f.importable === false"> · preview</span></span>
+            <input
+              class="docs__select"
+              [class.docs__metaAuto]="!!docTypeFieldValues[f.id]"
+              [class.docs__metaPreview]="f.importable === false"
+              type="text"
+              [(ngModel)]="docTypeFieldValues[f.id]"
+              [placeholder]="f.label || f.id"
+              [disabled]="f.importable === false"
+            />
+          </label>
+        </ng-container>
+      </div>
+
+      <label class="docs__field docs__field--disabled">
+        <span class="docs__fieldLabel">Linked record</span>
+        <input class="docs__select" type="text" [value]="context?.businessObjectId" disabled />
+      </label>
+      <div class="docs__uploadNote">Uploads are attached to this record automatically.</div>
+
+      <div class="docs__uploadActions" *ngIf="idpEnabled">
+        <button class="docs__uploadAuxBtn" type="button" (click)="autoClassify()" [disabled]="!canAutoClassify" title="Detect each file's document type with Hyland IDP">
+          ✨ Auto-classify (IDP)
+        </button>
+      </div>
+
+      <p class="docs__uploadStatus" *ngIf="uploadStatus" [class.docs__uploadStatus--error]="uploadError">{{ uploadStatus }}</p>
+
+      <button class="docs__uploadBtn" type="button" [disabled]="!canUpload" (click)="doUpload()">
+        <span class="docs__uploadBtnIcon" aria-hidden="true">&#8593;</span>
+        <span class="docs__uploadBtnText">{{ uploading ? 'Uploading\u2026' : 'Upload document' }}</span>
+      </button>
+    </div>
+  </div>
+
+  <!-- in-panel viewer overlay (ported from the old popup) -->
+  <div class="docs__viewer" *ngIf="viewerOpen">
+    <div class="docs__viewerBar">
+      <button class="docs__viewerBack" type="button" (click)="closeViewer()">&larr; Back</button>
+      <span class="docs__viewerTitle" [title]="viewerTitle">{{ viewerTitle }}</span>
+      <a class="docs__viewerOpenTab" *ngIf="viewerUrl" [href]="viewerUrl" target="_blank" rel="noopener" (click)="closeViewer()">Open in tab &#8599;</a>
+    </div>
+    <div class="docs__viewerBody">
+      <div class="docs__viewerLoading" *ngIf="viewerLoading">Loading viewer&hellip;</div>
+      <iframe
+        *ngIf="viewerSafeUrl"
+        class="docs__viewerFrame"
+        [hidden]="viewerFallback"
+        [src]="viewerSafeUrl"
+        (load)="onViewerLoaded()"
+        allow="storage-access"
+      ></iframe>
+      <div class="docs__viewerFallback" *ngIf="viewerFallback">
+        <p class="docs__viewerFallbackMsg">{{ viewerError || 'The viewer is taking a while or can\u2019t be embedded here.' }}</p>
+        <button class="docs__viewerFallbackBtn" type="button" *ngIf="viewerUrl" (click)="openInViewerWindow()">Open in viewer window</button>
+        <a class="docs__viewerFallbackLink" *ngIf="viewerUrl" [href]="viewerUrl" target="_blank" rel="noopener" (click)="closeViewer()">or open in a new tab</a>
+      </div>
+    </div>
+  </div>
+
+  <div
+    class="docs__menu docs__menu--floating"
+    *ngIf="menuDoc"
+    [style.top.px]="menuTop"
+    [style.left.px]="menuLeft"
+    (click)="$event.stopPropagation()"
+  >
+    <button class="docs__menuItem" type="button" (click)="download(menuDoc)">
+      <span class="docs__menuIcon docs__menuIcon--download" aria-hidden="true"></span>
+      <span>Download</span>
+    </button>
+    <button class="docs__menuItem docs__menuItem--danger" type="button" (click)="remove(menuDoc)">
+      <span class="docs__menuIcon docs__menuIcon--delete" aria-hidden="true"></span>
+      <span>Delete</span>
+    </button>
+  </div>
+
+  <!-- delete confirmation popup (matches the Figma mockup) -->
+  <div class="docs__modalScrim" *ngIf="deleteTarget" (click)="cancelDelete()">
+    <div class="docs__modal" (click)="$event.stopPropagation()" role="dialog" aria-modal="true">
+      <h3 class="docs__modalTitle">Delete file?</h3>
+      <p class="docs__modalBody">
+        <strong>{{ deleteTarget.name || deleteTarget.docId }}</strong> will be permanently deleted from the
+        repository and unlinked from this record. This action cannot be undone.
+      </p>
+      <p class="docs__modalError" *ngIf="deleteError">{{ deleteError }}</p>
+      <div class="docs__modalActions">
+        <button class="docs__modalBtn docs__modalBtn--ghost" type="button" (click)="cancelDelete()" [disabled]="deleting">Cancel</button>
+        <button class="docs__modalBtn docs__modalBtn--primary" type="button" (click)="confirmDelete()" [disabled]="deleting">
+          {{ deleting ? 'Deleting\u2026' : 'Delete' }}
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <div class="docs__toast" *ngIf="actionToast">
+    <span class="docs__toastIcon" [class.docs__toastIcon--loading]="actionToast.kind === 'loading'" [class.docs__toastIcon--success]="actionToast.kind === 'success'" [class.docs__toastIcon--error]="actionToast.kind === 'error'" aria-hidden="true"></span>
+    <span class="docs__toastText">{{ actionToast.text }}</span>
+    <button class="docs__toastDismiss" type="button" (click)="dismissActionToast()">Dismiss</button>
+  </div>
+</section>

@@ -148,17 +148,30 @@ async function getActiveContext() {
   const [tab] = await ext.tabs.query({ active: true, currentWindow: true });
   if (!tab?.id) return null;
 
-  if (contextByTab.has(tab.id)) return contextByTab.get(tab.id);
+  // Use the cache only when it holds a real context; a cached null is re-checked.
+  const cached = contextByTab.get(tab.id);
+  if (cached) return cached;
 
-  // Not cached yet (content script may have loaded before the worker woke). Ask the tab directly.
-  try {
+  const ask = async () => {
     const res = await ext.tabs.sendMessage(tab.id, { type: "UCEB_GET_CONTEXT" });
-    const context = res?.context ?? null;
+    return res?.context ?? null;
+  };
+
+  try {
+    const context = await ask();
     contextByTab.set(tab.id, context);
     return context;
   } catch {
-    // No content script on this page (unsupported site) — no context.
-    return null;
+    // Content script not present (e.g. the extension was reloaded while the page stayed open).
+    // Re-inject the detector, then ask again.
+    try {
+      await ext.scripting.executeScript({ target: { tabId: tab.id }, files: ["src/content/detector.js"] });
+      const context = await ask();
+      contextByTab.set(tab.id, context);
+      return context;
+    } catch {
+      return null;
+    }
   }
 }
 
@@ -177,11 +190,26 @@ ext.tabs.onRemoved.addListener((tabId) => contextByTab.delete(tabId));
 // Auto sign-out on browser close: the session lives in storage.session (in-memory), which the
 // browser clears automatically when it shuts down. On the next launch we defensively remove any
 // leftover session id so a browser restart always requires a fresh sign-in.
+// EXCEPTION: when the Angular app is built with devKeepSession, the session is parked in
+// storage.local on purpose so UI changes can be previewed without signing in every time.
+async function devKeepSessionEnabled() {
+  try {
+    const resp = await fetch(ext.runtime.getURL("ng/configs.json"));
+    return resp.ok && (await resp.json())?.devKeepSession === true;
+  } catch {
+    return false;
+  }
+}
+
 ext.runtime.onStartup.addListener(async () => {
   try {
     await ext.storage.session?.remove?.(SESSION_KEY);
   } catch {
     /* storage.session may be unavailable on some builds — ignore */
+  }
+  if (await devKeepSessionEnabled()) {
+    console.info("[background] devKeepSession on — keeping the stored session.");
+    return;
   }
   await ext.storage.local.remove(SESSION_KEY);
 });

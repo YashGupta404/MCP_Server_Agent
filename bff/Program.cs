@@ -415,8 +415,8 @@ app.MapPost("/api/context", async (HttpContext ctx, ContextRequest req) =>
         // consistent, generic column set. Falls back to list_documents -> merged record listing for
         // objects that have no defaultListQuery (e.g. Workday).
         var dlq = await McpJsonRpc.GetDefaultListQueryAsync(httpFactory, mcp, req.BusinessObjectType, log, cts.Token);
-        string text;
-        object[] documents;
+        string text = "";
+        object[] documents = Array.Empty<object>();
         string[]? columns = null;
         if (dlq is not null && !string.IsNullOrWhiteSpace(dlq.BoContextFieldId))
         {
@@ -430,9 +430,14 @@ app.MapPost("/api/context", async (HttpContext ctx, ContextRequest req) =>
                 maxResults = 500,
             }, log, cts.Token);
             documents = McpJsonRpc.ParseDocumentList(text);
-            if (dlq.Columns.Length > 0) columns = dlq.Columns;
+            if (documents.Length > 0 && dlq.Columns.Length > 0) columns = dlq.Columns;
+            else if (documents.Length == 0)
+                log.LogWarning("[/api/context] defaultListQuery {QueryId} returned nothing; falling back to the merged record listing", dlq.Id);
         }
-        else
+
+        // Fallback (no defaultListQuery configured, or that single query failed/returned nothing):
+        // merge the record's other configured queries so one broken query can't blank the panel.
+        if (documents.Length == 0)
         {
             text = await McpJsonRpc.CallToolAsync(httpFactory, mcp, "list_documents", new
             {
@@ -451,6 +456,7 @@ app.MapPost("/api/context", async (HttpContext ctx, ContextRequest req) =>
                 }, log, cts.Token);
                 documents = McpJsonRpc.ParseDocumentList(text);
             }
+            if (documents.Length > 0) columns = null;
         }
         log.LogInformation("[/api/context] type={Type} id={Id} -> {Count} document(s)",
             req.BusinessObjectType, req.BusinessObjectId, documents.Length);
@@ -471,7 +477,10 @@ app.MapPost("/api/context", async (HttpContext ctx, ContextRequest req) =>
 });
 
 // ---------- List the available UCEB document (content) types for the upload dropdown ----------
-// Deterministic (BFF -> MCP list_document_types); the panel populates its doc-type <select> from this.
+// Prefers the solution config's configured content types for the business object (one fast config read).
+// list_document_types enumerates EVERY content-type group in the repo, which on large OnBase systems
+// exceeds UCEB's 20s budget (408 "consider using the 'doctypeGroupId' query parameter"), so it is only
+// the fallback when no business object is supplied or nothing is configured for it.
 app.MapGet("/api/doctypes", async (HttpContext ctx) =>
 {
     var sessionId = ctx.Request.Headers["X-BFF-Session"].ToString();
@@ -481,12 +490,24 @@ app.MapGet("/api/doctypes", async (HttpContext ctx) =>
     if (string.IsNullOrWhiteSpace(mcp.BaseUrl) || string.IsNullOrWhiteSpace(mcp.ApiKey))
         return Results.Json(new { error = "mcp_not_configured" }, statusCode: 500);
 
+    var boType = ctx.Request.Query["businessObjectType"].ToString();
     try
     {
         using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(60));
+        if (!string.IsNullOrWhiteSpace(boType))
+        {
+            var configured = await McpJsonRpc.GetConfiguredCicContentTypesAsync(httpFactory, mcp, boType, log, cts.Token);
+            if (configured.Count > 0)
+            {
+                var fromConfig = configured.OrderBy(t => t, StringComparer.OrdinalIgnoreCase).ToArray();
+                log.LogInformation("[/api/doctypes] {Count} configured type(s) for {BoType}", fromConfig.Length, boType);
+                return Results.Json(new { types = fromConfig, source = "solution-config" });
+            }
+        }
+
         var text = await McpJsonRpc.CallToolAsync(httpFactory, mcp, "list_document_types", new { }, log, cts.Token);
         var types = McpJsonRpc.ParseDocumentTypes(text);
-        return Results.Json(new { types, raw = text });
+        return Results.Json(new { types, raw = text, source = "list_document_types" });
     }
     catch (Exception ex)
     {
@@ -1144,6 +1165,44 @@ app.MapGet("/api/document/content", async (HttpContext ctx) =>
     {
         log.LogError(ex, "/api/document/content failed for {DocId}", docId);
         return Results.Json(new { error = "content_failed", detail = ex.Message }, statusCode: 502);
+    }
+});
+
+// ---------- Permanently DELETE a document (BFF proxies to MCP DELETE /documents/{id}) ----------
+// Session-gated. The MCP removes the document from the active ECM system (CFS/OnBase federated delete).
+app.MapPost("/api/document/delete", async (HttpContext ctx) =>
+{
+    var sessionId = ctx.Request.Headers["X-BFF-Session"].ToString();
+    if (string.IsNullOrEmpty(sessionId) || !sessions.TryGet(sessionId, out _))
+        return Results.Json(new { error = "not_authenticated" }, statusCode: 401);
+
+    var docId = ctx.Request.Query["docId"].ToString();
+    if (string.IsNullOrWhiteSpace(docId))
+        return Results.Json(new { error = "missing_docId" }, statusCode: 400);
+
+    if (string.IsNullOrWhiteSpace(mcp.BaseUrl) || string.IsNullOrWhiteSpace(mcp.ApiKey))
+        return Results.Json(new { error = "mcp_not_configured" }, statusCode: 500);
+
+    try
+    {
+        var http = httpFactory.CreateClient();
+        var url = $"{mcp.BaseUrl.TrimEnd('/')}/documents/{Uri.EscapeDataString(docId)}";
+        using var delReq = new HttpRequestMessage(HttpMethod.Delete, url);
+        delReq.Headers.TryAddWithoutValidation(mcp.HeaderName, mcp.ApiKey);
+
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(120));
+        var mcpResp = await http.SendAsync(delReq, cts.Token);
+        var body = await mcpResp.Content.ReadAsStringAsync(cts.Token);
+
+        if (!mcpResp.IsSuccessStatusCode)
+            return Results.Json(new { error = "delete_failed", status = (int)mcpResp.StatusCode, detail = body }, statusCode: (int)mcpResp.StatusCode);
+
+        return Results.Json(new { deleted = true, docId });
+    }
+    catch (Exception ex)
+    {
+        log.LogError(ex, "/api/document/delete failed for {DocId}", docId);
+        return Results.Json(new { error = "delete_failed", detail = ex.Message }, statusCode: 502);
     }
 });
 

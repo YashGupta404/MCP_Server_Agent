@@ -19,6 +19,10 @@ node_modules/
 npm-debug.log*
 yarn-error.log*
 
+# Angular build output (agent-ng `ng build` writes the extension panel here)
+agent-ng/dist/
+browser-extension/ng/
+
 # ---- OS / editor ----
 .DS_Store
 Thumbs.db

@@ -1,0 +1,18 @@
+{
+  "bffBaseUrl": "https://localhost:5010",
+  "idpEnabled": true,
+  "demoMode": true,
+  "devKeepSession": false,
+  "defaultLoginHint": "yash.gupta+appintel-dev@hyland.com",
+  "entraTenants": [
+    { "label": "onbase.onmicrosoft.com", "domain": "onbase.onmicrosoft.com" },
+    { "label": "hylandtesters.onmicrosoft.com", "domain": "hylandtesters.onmicrosoft.com" }
+  ],
+  "auth": {
+    "authorizeEndpoint": "https://auth.dev.app.hyland.com/idp/connect/authorize",
+    "tokenEndpoint": "https://auth.dev.app.hyland.com/idp/connect/token",
+    "clientId": "wsc-5906caef-219c-4277-a4d8-2d86fb2fc1a0",
+    "redirectUri": "",
+    "scope": "openid profile offline_access hxp environment_authorization"
+  }
+}

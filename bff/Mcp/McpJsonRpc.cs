@@ -372,7 +372,40 @@ static class McpJsonRpc
 
     // Like CallToolAsync but also returns the tool's isError flag from the JSON-RPC result, so callers
     // (e.g. upload) can tell a real success from a tool that ran but reported a failure in its text.
+    // Transient OnBase/CFS broker stalls (UCEB 503 "Job is still processing. Retry after 3 seconds" /
+    // 408 "Operation timed out") are retried here — the backend explicitly asks callers to retry.
     public static async Task<(string Text, bool IsError)> CallToolWithStatusAsync(
+        IHttpClientFactory httpFactory, McpOptions mcp, string toolName, object arguments,
+        ILogger log, CancellationToken ct)
+    {
+        const int maxAttempts = 3;
+        (string Text, bool IsError) last = ("", true);
+        for (var attempt = 1; attempt <= maxAttempts; attempt++)
+        {
+            last = await CallToolOnceAsync(httpFactory, mcp, toolName, arguments, log, ct);
+            if (!IsTransientBrokerStall(last.Text)) return last;
+            if (attempt < maxAttempts)
+            {
+                log.LogWarning("MCP tool '{Tool}' hit a transient broker stall (attempt {Attempt}/{Max}); retrying",
+                    toolName, attempt, maxAttempts);
+                await Task.Delay(TimeSpan.FromSeconds(3), ct);
+            }
+        }
+        return last;
+    }
+
+    // UCEB surfaces a slow/unhealthy CFS/OnBase broker as a 503 "still processing"/"Retry after", a 408
+    // "Operation timed out", or a 404 "A service is currently unavailable" in the tool's text. All are
+    // transient backend conditions worth retrying; real errors (bad query, denied, not configured) are not.
+    private static bool IsTransientBrokerStall(string text) =>
+        !string.IsNullOrEmpty(text) &&
+        (text.Contains("still processing", StringComparison.OrdinalIgnoreCase) ||
+         text.Contains("Retry after", StringComparison.OrdinalIgnoreCase) ||
+         text.Contains("Request timeout", StringComparison.OrdinalIgnoreCase) ||
+         text.Contains("Operation timed out", StringComparison.OrdinalIgnoreCase) ||
+         text.Contains("currently unavailable", StringComparison.OrdinalIgnoreCase));
+
+    private static async Task<(string Text, bool IsError)> CallToolOnceAsync(
         IHttpClientFactory httpFactory, McpOptions mcp, string toolName, object arguments,
         ILogger log, CancellationToken ct)
     {

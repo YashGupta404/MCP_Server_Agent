@@ -1,0 +1,233 @@
+:host {
+  display: block;
+  height: 100%;
+}
+
+.signin {
+  display: flex;
+  justify-content: center;
+  align-items: stretch;
+  padding: 14px;
+  min-height: 100%;
+  background: #eef0f3;
+}
+
+.signin__card {
+  width: 100%;
+  max-width: none;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  justify-content: center;
+  text-align: center;
+  padding: 28px 28px 32px;
+  background: #ffffff;
+  border: 1px solid #ececf1;
+  border-radius: 14px;
+  box-shadow: 0 6px 24px rgba(23, 23, 48, 0.06);
+}
+
+.signin__logo {
+  align-self: center;
+  margin-bottom: 18px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.signin__logoImg {
+  width: 52px;
+  height: 52px;
+  border-radius: 12px;
+  display: block;
+}
+
+.signin__title {
+  margin: 0 0 6px;
+  font-size: 22px;
+  font-weight: 700;
+  color: #1b1b2f;
+}
+
+.signin__subtitle {
+  margin: 0 0 22px;
+  font-size: 13.5px;
+  color: #6b6b7b;
+}
+
+.signin__email {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 14px;
+  border: 1px solid #e6e6ee;
+  border-radius: 10px;
+  background: #f7f7fb;
+  margin-bottom: 16px;
+}
+
+.signin__emailText {
+  font-size: 14px;
+  color: #26263a;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.signin__link {
+  flex: none;
+  border: none;
+  background: none;
+  color: #4b40b5;
+  font-weight: 600;
+  font-size: 13.5px;
+  cursor: pointer;
+  padding: 0;
+}
+.signin__link:hover {
+  text-decoration: underline;
+}
+
+.signin__field {
+  text-align: left;
+  margin-bottom: 16px;
+}
+
+.signin__label {
+  display: block;
+  font-size: 12px;
+  color: #6b6b7b;
+  margin-bottom: 6px;
+}
+
+.signin__input {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 11px 14px;
+  border: 1px solid #d9d9e3;
+  border-radius: 10px;
+  font-size: 14px;
+  color: #1b1b2f;
+}
+.signin__input:focus {
+  outline: none;
+  border-color: #4b40b5;
+  box-shadow: 0 0 0 3px rgba(75, 64, 181, 0.15);
+}
+
+.signin__remember {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13.5px;
+  color: #3a3a4d;
+  margin-bottom: 18px;
+}
+.signin__remember input {
+  width: 16px;
+  height: 16px;
+  accent-color: #4b40b5;
+}
+
+.signin__btn {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 12px 16px;
+  border-radius: 10px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+}
+.signin__btn:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.signin__btn--primary {
+  border: none;
+  color: #ffffff;
+  background: #4b40b5;
+}
+.signin__btn--primary:not(:disabled):hover {
+  background: #3f359c;
+}
+
+.signin__or {
+  position: relative;
+  text-align: center;
+  margin: 18px 0;
+  color: #9a9aa8;
+  font-size: 12px;
+}
+.signin__or::before {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 0;
+  right: 0;
+  height: 1px;
+  background: #ececf1;
+}
+.signin__or span {
+  position: relative;
+  background: #ffffff;
+  padding: 0 12px;
+}
+
+.signin__btn--sso {
+  border: 1px solid #d9d9e3;
+  background: #ffffff;
+  color: #26263a;
+  margin-bottom: 12px;
+}
+.signin__btn--sso:not(:disabled):hover {
+  background: #f7f7fb;
+}
+.signin__btn--sso:last-child {
+  margin-bottom: 0;
+}
+
+/* Microsoft four-square logo drawn in CSS. */
+.signin__msicon {
+  flex: none;
+  width: 16px;
+  height: 16px;
+  background:
+    linear-gradient(#f25022, #f25022) 0 0 / 7px 7px no-repeat,
+    linear-gradient(#7fba00, #7fba00) 9px 0 / 7px 7px no-repeat,
+    linear-gradient(#00a4ef, #00a4ef) 0 9px / 7px 7px no-repeat,
+    linear-gradient(#ffb900, #ffb900) 9px 9px / 7px 7px no-repeat;
+}
+
+.signin__spinner {
+  width: 16px;
+  height: 16px;
+  border: 2px solid rgba(255, 255, 255, 0.5);
+  border-top-color: #ffffff;
+  border-radius: 50%;
+  animation: signin-spin 0.7s linear infinite;
+}
+
+@keyframes signin-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.signin__error {
+  margin: 14px 0 0;
+  color: #c0392b;
+  font-size: 13px;
+}
+
+.signin__success {
+  margin: 14px 0 0;
+  color: #1e8e4e;
+  font-size: 13px;
+  font-weight: 600;
+}

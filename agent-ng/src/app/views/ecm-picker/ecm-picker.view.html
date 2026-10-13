@@ -1,0 +1,48 @@
+<section class="ecm">
+  <header class="ecm__header">
+    <div class="ecm__brand">
+      <img class="ecm__logo" src="hyland-agent-logo.png" alt="" />
+      <div class="ecm__titles">
+        <div class="ecm__appName">Hyland Integrations Agent</div>
+        <div class="ecm__appTag">DOCUMENT INTELLIGENCE</div>
+      </div>
+    </div>
+    <div class="ecm__headerRight">
+      <span class="ecm__avatar"><span class="ecm__avatarDot" aria-hidden="true"></span></span>
+      <button class="ecm__close" type="button" (click)="close()" aria-label="Close">&times;</button>
+    </div>
+  </header>
+
+  <div class="ecm__body">
+    <h1 class="ecm__title">Choose your content system</h1>
+    <p class="ecm__subtitle">Select the ECM system to connect to for this session</p>
+
+    <div class="ecm__list" *ngIf="loading">
+      <div class="ecm__skeleton" *ngFor="let s of skeletons"></div>
+    </div>
+
+    <p class="ecm__error" *ngIf="error">{{ error }}</p>
+
+    <div class="ecm__list" *ngIf="!loading && !error">
+      <button
+        *ngFor="let c of configs; let i = index"
+        type="button"
+        class="ecm__item"
+        [class.ecm__item--active]="c.friendlyName === connected"
+        [style.animation-delay.ms]="i * 45"
+        [disabled]="!!selecting"
+        (click)="choose(c)"
+      >
+        <span class="ecm__name">{{ c.friendlyName }}</span>
+        <span class="ecm__hint" *ngIf="c.isDefault">(default)</span>
+        <span class="ecm__badge" [ngClass]="badgeClass(c.systemType)" *ngIf="c.systemType">{{ c.systemType }}</span>
+        <span class="ecm__spin" *ngIf="selecting === c.friendlyName" aria-hidden="true"></span>
+        <span
+          class="ecm__check"
+          *ngIf="c.friendlyName === connected && selecting !== c.friendlyName"
+          aria-hidden="true"
+        >&#10003;</span>
+      </button>
+    </div>
+  </div>
+</section>

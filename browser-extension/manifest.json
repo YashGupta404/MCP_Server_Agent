@@ -23,7 +23,7 @@
     "type": "module"
   },
   "side_panel": {
-    "default_path": "src/popup.html"
+    "default_path": "ng/index.html"
   },
   "permissions": [
     "identity",
