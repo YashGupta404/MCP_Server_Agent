@@ -1,22 +1,22 @@
 <section class="signin">
-  <div class="signin__card">
+  <mat-card appearance="filled" class="signin__card">
     <div class="signin__logo">
       <img class="signin__logoImg" src="hyland-agent-logo.png" alt="Hyland Integrations Agent" />
     </div>
 
-    <h1 class="signin__title">Sign in to Hyland</h1>
-    <p class="signin__subtitle">Connect your content repositories</p>
+    <h1 class="signin__title">{{ 'signIn.title' | translate }}</h1>
+    <p class="signin__subtitle">{{ 'signIn.subtitle' | translate }}</p>
 
     <button
+      matButton="filled"
       type="button"
-      class="signin__btn signin__btn--primary"
+      class="signin__btn"
       [disabled]="busy"
       (click)="signIn()"
     >
-      <span *ngIf="busy" class="signin__spinner" aria-hidden="true"></span>
-      {{ busy ? 'Opening Hyland sign-in…' : 'Continue' }}
+      {{ (busy ? 'signIn.opening' : 'signIn.continue') | translate }}
     </button>
 
-    <p class="signin__error" *ngIf="error">{{ error }}</p>
-  </div>
+    <p class="signin__error" *ngIf="error" role="alert">{{ error }}</p>
+  </mat-card>
 </section>

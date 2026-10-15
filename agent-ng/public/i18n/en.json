@@ -1,0 +1,150 @@
+{
+  "app": {
+    "close": "Close",
+    "theme": {
+      "toLight": "Switch to light theme",
+      "toDark": "Switch to dark theme"
+    }
+  },
+  "profile": {
+    "open": "Open profile menu",
+    "unknownName": "Signed-in user",
+    "unknownEmail": "Email unavailable",
+    "signedIn": "Signed in",
+    "signOut": "Sign out"
+  },
+  "signIn": {
+    "title": "Sign in to Hyland",
+    "subtitle": "Connect your content repositories",
+    "continue": "Continue",
+    "opening": "Opening Hyland sign-in\u2026",
+    "error": "Sign-in failed. Please try again."
+  },
+  "ecm": {
+    "title": "Choose your content system",
+    "subtitle": "Select the content system to connect to for this session",
+    "default": "default",
+    "connecting": "Connecting\u2026",
+    "loadError": "Could not load content systems.",
+    "connectError": "Could not connect to that system.",
+    "close": "Close"
+  },
+  "documents": {
+    "refresh": "Refresh documents",
+    "collapse": "Collapse record details",
+    "system": {
+      "change": "Change content system"
+    },
+    "actions": {
+      "label": "Document actions"
+    },
+    "search": {
+      "placeholder": "Search by name, type, owner or ID"
+    },
+    "query": {
+      "label": "Query",
+      "tooltip": "Search by keyword",
+      "heading": "Search the repository with a saved query",
+      "reset": "Reset",
+      "saved": "Saved query",
+      "loading": "Loading\u2026",
+      "choose": "Choose a saved query",
+      "match": "Match",
+      "enter": "Enter",
+      "run": "Run query",
+      "searching": "Searching\u2026"
+    },
+    "loading": "Loading documents\u2026",
+    "empty": {
+      "noRecord": "Open a Salesforce / Workday record in this tab, then press refresh.",
+      "noContent": "No content linked to this record yet."
+    },
+    "pager": {
+      "perPage": "Items per page:",
+      "previous": "Previous",
+      "next": "Next"
+    },
+    "menu": {
+      "download": "Download",
+      "delete": "Delete"
+    }
+  },
+  "viewer": {
+    "back": "Back",
+    "openTab": "Open in tab",
+    "loading": "Loading viewer\u2026",
+    "fallback": {
+      "message": "The viewer is taking a while or can\u2019t be embedded here.",
+      "openWindow": "Open in viewer window",
+      "openTab": "or open in a new tab"
+    }
+  },
+  "chat": {
+    "empty": {
+      "title": "Start a conversation",
+      "subtitle": "Ask about documents, or attach files with the + button"
+    },
+    "chips": {
+      "search": "I want to search a document",
+      "show": "Show my documents"
+    },
+    "placeholder": "Ask the agent\u2026",
+    "attach": "Attach",
+    "send": "Send",
+    "removeFile": "Remove"
+  },
+  "upload": {
+    "title": "Add documents to this {{type}}",
+    "subtitle": "Files are stored in the connected repository and linked to this record.",
+    "drop": {
+      "prefix": "Drag a file here, or",
+      "browse": "browse your computer"
+    },
+    "removeFile": "Remove",
+    "badge": {
+      "edited": "edited",
+      "notClassified": "not classified",
+      "unknown": "unknown type"
+    },
+    "docType": {
+      "label": "Document type",
+      "loading": "Loading document types\u2026",
+      "error": "Couldn\u2019t load types",
+      "choose": "Choose a document type"
+    },
+    "meta": {
+      "loading": "Loading metadata fields\u2026",
+      "none": "This document type has no metadata fields on this record.",
+      "title": "Additional metadata (optional)",
+      "preview": "preview"
+    },
+    "linkedRecord": "Linked record",
+    "note": "Uploads are attached to this record automatically.",
+    "autoClassify": {
+      "label": "Auto-classify (IDP)",
+      "tooltip": "Detect each file\u2019s document type with Hyland IDP"
+    },
+    "cta": {
+      "upload": "Upload document",
+      "uploading": "Uploading\u2026"
+    }
+  },
+  "delete": {
+    "title": "Delete file?",
+    "body": "will be permanently deleted from the repository and unlinked from this record. This action cannot be undone.",
+    "cancel": "Cancel",
+    "confirm": "Delete",
+    "deleting": "Deleting\u2026"
+  },
+  "actions": {
+    "dismiss": "Dismiss",
+    "downloading": "Downloading {{name}}",
+    "downloaded": "Downloaded {{name}}",
+    "openedInViewer": "Opened {{name}} in the viewer",
+    "downloadError": "Could not download this document.",
+    "uploadedToRecord": "\u201c{{name}}\u201d uploaded to {{target}}",
+    "uploadedManyToRecord": "{{count}} files uploaded to {{target}}",
+    "deleted": "\u201c{{name}}\u201d deleted",
+    "deleteError": "Could not delete this document."
+  }
+}

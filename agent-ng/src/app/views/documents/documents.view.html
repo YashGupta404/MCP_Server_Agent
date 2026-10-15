@@ -8,50 +8,62 @@
       </div>
     </div>
     <div class="docs__headerRight">
-      <span class="docs__avatar">
-        JA
-        <span class="docs__avatarBadge" aria-hidden="true">
-          <svg viewBox="0 0 12 12" fill="none"><path d="M3 6.2 L5 8.2 L9 4.2" stroke="#ffffff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      <button
+        matIconButton
+        type="button"
+        (click)="theme.toggle()"
+        [attr.aria-pressed]="theme.isDark"
+        [attr.aria-label]="(theme.isDark ? 'app.theme.toLight' : 'app.theme.toDark') | translate"
+        [matTooltip]="(theme.isDark ? 'app.theme.toLight' : 'app.theme.toDark') | translate"
+      >
+        <mat-icon [svgIcon]="theme.isDark ? 'dark_mode' : 'light_mode'"></mat-icon>
+      </button>
+      <button class="docs__profileBtn" type="button" [matMenuTriggerFor]="profileMenu" [attr.aria-label]="'profile.open' | translate">
+        <span class="docs__avatar">
+          {{ profileInitials }}
+          <span class="docs__avatarBadge" aria-hidden="true">
+            <mat-icon svgIcon="check"></mat-icon>
+          </span>
         </span>
-      </span>
-      <button class="docs__close" type="button" (click)="close()" aria-label="Close">
-        <svg viewBox="0 0 24 24" fill="none"><path d="M6 6l12 12M18 6L6 18" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+      </button>
+      <button matIconButton type="button" (click)="close()" [attr.aria-label]="'app.close' | translate">
+        &times;
       </button>
     </div>
   </header>
+
+  <mat-menu #profileMenu="matMenu" class="satori">
+    <div class="docs__profileMenu" (click)="$event.stopPropagation()">
+      <div class="docs__profileName">{{ profileName || ('profile.unknownName' | translate) }}</div>
+      <div class="docs__profileEmail" [title]="profileEmail">{{ profileEmail || ('profile.unknownEmail' | translate) }}</div>
+      <div class="docs__profileStatus">{{ 'profile.signedIn' | translate }}</div>
+      <div class="docs__profileDivider"></div>
+      <button class="docs__profileAction" type="button" (click)="signOut()">
+        <mat-icon svgIcon="logout"></mat-icon>
+        <span>{{ 'profile.signOut' | translate }}</span>
+      </button>
+    </div>
+  </mat-menu>
 
   <div class="docs__scroll">
     <!-- connected system card -->
     <div class="docs__card docs__systemCard">
       <div class="docs__systemTop">
-        <svg class="docs__cloud" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-          <path d="M6.4 18.2h10.7a3.85 3.85 0 0 0 .56-7.66 5.9 5.9 0 0 0-11.18-1.8 4.15 4.15 0 0 0-.09 8.44Z"
-            stroke="#27B5A8" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
-          <path d="M8.9 12.4 10.9 14.4 15.3 10" stroke="#27B5A8" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" />
-        </svg>
-        <button class="docs__systemName" type="button" (click)="changeSystem()" title="Change content system">
+        <mat-icon class="docs__cloud" svgIcon="cloud" aria-hidden="true"></mat-icon>
+        <button class="docs__systemName" type="button" (click)="changeSystem()" [matTooltip]="'documents.system.change' | translate">
           {{ activeSystem || '\u2014' }}
         </button>
         <div class="docs__systemActions">
-          <button class="docs__iconBtn" type="button" (click)="reload()" [disabled]="loading" aria-label="Refresh">
-            <svg viewBox="0 0 24 24" fill="none">
-              <path d="M20 12a8 8 0 1 1-2.34-5.66" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
-              <path d="M20 4v5h-5" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
-            </svg>
+          <button matIconButton type="button" (click)="reload()" [disabled]="loading" [attr.aria-label]="'documents.refresh' | translate">
+            <mat-icon svgIcon="refresh"></mat-icon>
           </button>
-          <button class="docs__iconBtn" type="button" (click)="systemCollapsed = !systemCollapsed" aria-label="Collapse">
-            <svg viewBox="0 0 24 24" fill="none" [class.docs__chev--down]="systemCollapsed">
-              <path d="M6 15l6-6 6 6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
-            </svg>
+          <button matIconButton type="button" (click)="systemCollapsed = !systemCollapsed" [attr.aria-label]="'documents.collapse' | translate">
+            <mat-icon [svgIcon]="systemCollapsed ? 'chevron_down' : 'chevron_up'"></mat-icon>
           </button>
         </div>
       </div>
       <div class="docs__systemRecord" *ngIf="context?.businessObjectId && !systemCollapsed">
-        <svg class="docs__docIcon" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-          <path d="M7.2 2.7h6.9L18.9 7v14c0 .72-.58 1.3-1.3 1.3H7.2c-.72 0-1.3-.58-1.3-1.3V4c0-.72.58-1.3 1.3-1.3Z" fill="#4B40B5" />
-          <path d="M14.1 2.7V7h4.8" fill="#6B63D8" />
-          <path d="M8.9 10.3h6.5M8.9 13.35h6.5M8.9 16.4h4.8" stroke="#ffffff" stroke-width="1.8" stroke-linecap="round" />
-        </svg>
+        <mat-icon class="docs__docIcon" svgIcon="document" aria-hidden="true"></mat-icon>
         <span class="docs__recordType">{{ context?.businessObjectType }}</span>
         <span class="docs__recordSep">&middot;</span>
         <span class="docs__recordId">ID {{ context?.businessObjectId }}</span>
@@ -69,12 +81,12 @@
       <div class="docs__content" *ngIf="tab === 'documents'">
         <div class="docs__searchRow">
           <div class="docs__searchBox">
-            <span class="docs__searchIcon" aria-hidden="true"></span>
+            <mat-icon class="docs__searchIcon" svgIcon="search" aria-hidden="true"></mat-icon>
             <input
               type="text"
               [(ngModel)]="search"
               (ngModelChange)="onSearch()"
-              placeholder="Search by name, type, owner or ID"
+              [placeholder]="'documents.search.placeholder' | translate"
             />
           </div>
           <button
@@ -82,30 +94,34 @@
             type="button"
             [class.docs__query--active]="queryOpen"
             (click)="toggleQuery()"
-            title="Search by keyword"
+            [matTooltip]="'documents.query.tooltip' | translate"
           >
-            <span class="docs__filterIcon" aria-hidden="true"></span>Query
+            <mat-icon class="docs__filterIcon" svgIcon="filter" aria-hidden="true"></mat-icon>{{ 'documents.query.label' | translate }}
           </button>
         </div>
 
         <!-- server-side query (keyword search) panel -->
         <div class="docs__queryPanel" *ngIf="queryOpen">
           <div class="docs__qHead">
-            <span class="docs__qHeadTitle">Search the repository with a saved query</span>
-            <button class="docs__qReset" type="button" *ngIf="selectedQueryId || queryActive" (click)="clearQuery()">Reset</button>
+            <span class="docs__qHeadTitle">{{ 'documents.query.heading' | translate }}</span>
+            <span class="docs__loadingInline" *ngIf="queriesLoading">
+              <span>{{ 'documents.query.loading' | translate }}</span>
+              <mat-spinner diameter="16"></mat-spinner>
+            </span>
+            <button class="docs__qReset" type="button" *ngIf="selectedQueryId || queryActive" (click)="clearQuery()">{{ 'documents.query.reset' | translate }}</button>
           </div>
 
           <div class="docs__qField">
-            <label class="docs__qLabel">Saved query</label>
+            <label class="docs__qLabel">{{ 'documents.query.saved' | translate }}</label>
             <select class="docs__qControl" [(ngModel)]="selectedQueryId" (ngModelChange)="onQueryChange()" [disabled]="queriesLoading">
-              <option value="">{{ queriesLoading ? 'Loading\u2026' : 'Choose a saved query' }}</option>
+              <option value="">{{ (queriesLoading ? 'documents.query.loading' : 'documents.query.choose') | translate }}</option>
               <option *ngFor="let q of queries" [value]="q.id">{{ q.name || q.id }}</option>
             </select>
           </div>
 
           <div class="docs__qRow" *ngFor="let inp of queryInputs">
             <div class="docs__qField docs__qField--match">
-              <label class="docs__qLabel">Match</label>
+              <label class="docs__qLabel">{{ 'documents.query.match' | translate }}</label>
               <select class="docs__qControl" [(ngModel)]="queryOps[inp.id]">
                 <option *ngFor="let op of operatorsFor(inp)" [value]="op">{{ friendlyOperator(op) }}</option>
               </select>
@@ -115,28 +131,34 @@
               <input
                 class="docs__qControl"
                 type="text"
-                [placeholder]="'Enter ' + (inp.name || inp.id).toLowerCase()"
+                [placeholder]="('documents.query.enter' | translate) + ' ' + (inp.name || inp.id).toLowerCase()"
                 [(ngModel)]="queryValues[inp.id]"
                 [attr.maxlength]="inp.maxLength || null"
               />
             </div>
           </div>
 
+          <div class="docs__loadingInline docs__qLoadingFields" *ngIf="queryFieldsLoading">
+            <span>{{ 'documents.query.fieldsLoading' | translate }}</span>
+            <mat-spinner diameter="16"></mat-spinner>
+          </div>
+
           <button class="docs__qRun" type="button" [disabled]="querySearching || !selectedQueryId" (click)="runQuery()">
-            {{ querySearching ? 'Searching\u2026' : 'Run query' }}
+            <mat-spinner *ngIf="querySearching" diameter="18"></mat-spinner>
+            {{ (querySearching ? 'documents.query.searching' : 'documents.query.run') | translate }}
           </button>
 
           <p class="docs__queryStatus" *ngIf="queryStatus" [class.docs__queryStatus--error]="queryStatusError">{{ queryStatus }}</p>
         </div>
 
-        <div class="docs__state" *ngIf="loading">Loading documents&hellip;</div>
+        <div class="docs__state" *ngIf="loading">{{ 'documents.loading' | translate }}</div>
         <p class="docs__error" *ngIf="error">{{ error }}</p>
         <p class="docs__state" *ngIf="!loading && !error && !context?.businessObjectId">
-          Open a Salesforce / Workday record in this tab, then press refresh.
+          {{ 'documents.empty.noRecord' | translate }}
         </p>
         <p class="docs__debug" *ngIf="!loading && !context?.businessObjectId && ctxDebug">{{ ctxDebug }}</p>
         <p class="docs__state" *ngIf="!loading && !error && context?.businessObjectId && documents.length === 0">
-          No content linked to this record yet.
+          {{ 'documents.empty.noContent' | translate }}
         </p>
 
         <table class="docs__table" *ngIf="!loading && !error && paged.length">
@@ -159,15 +181,13 @@
                 [title]="cell(d, col)"
               >
                 <span class="docs__cellInner">
-                  <span class="docs__fileIcon docs__fileIcon--{{ fileKind(d) }}" *ngIf="isNameCol(col)">
-                    {{ fileExt(d) ? fileExt(d).substr(0, 3).toUpperCase() : 'DOC' }}
-                  </span>
+                  <mat-icon class="docs__fileIcon docs__fileIcon--{{ fileKind(d) }}" [svgIcon]="fileIconName(d)" *ngIf="isNameCol(col)" aria-hidden="true"></mat-icon>
                   <span class="docs__cellText">{{ cell(d, col) }}</span>
                 </span>
               </td>
               <td class="docs__actionsCell">
-                <button class="docs__kebab" type="button" (click)="toggleMenu(d, $event)" aria-label="Actions">
-                  &#8942;
+                <button matIconButton class="docs__kebab" type="button" [matMenuTriggerFor]="rowMenu" (click)="menuDoc = d; $event.stopPropagation()" [attr.aria-label]="'documents.actions.label' | translate">
+                  <mat-icon svgIcon="more_vert"></mat-icon>
                 </button>
               </td>
             </tr>
@@ -175,13 +195,17 @@
         </table>
 
         <div class="docs__pager" *ngIf="!loading && !error && filtered.length">
-          <span class="docs__pagerInfo">Items per page:</span>
+          <span class="docs__pagerInfo">{{ 'documents.pager.perPage' | translate }}</span>
           <select class="docs__select docs__pagerSelect" [(ngModel)]="pageSize" (ngModelChange)="onPageSizeChange()">
             <option *ngFor="let size of pageSizeOptions" [ngValue]="size">{{ size }}</option>
           </select>
           <span class="docs__pagerRange">{{ rangeLabel() }}</span>
-          <button type="button" (click)="prev()" [disabled]="page <= 1" aria-label="Previous">&lsaquo;</button>
-          <button type="button" (click)="next()" [disabled]="page >= totalPages" aria-label="Next">&rsaquo;</button>
+          <button matIconButton class="docs__pagerNav" type="button" (click)="prev()" [disabled]="page <= 1" [attr.aria-label]="'documents.pager.previous' | translate">
+            <mat-icon svgIcon="chevron_left"></mat-icon>
+          </button>
+          <button matIconButton class="docs__pagerNav" type="button" (click)="next()" [disabled]="page >= totalPages" [attr.aria-label]="'documents.pager.next' | translate">
+            <mat-icon svgIcon="chevron_right"></mat-icon>
+          </button>
         </div>
       </div>
 
@@ -209,8 +233,8 @@
               <circle cx="83" cy="58" r="3.4" fill="#FFFFFF" />
               <ellipse cx="60" cy="95" rx="29" ry="4.5" fill="#E7E3F7" />
             </svg>
-            <div class="docs__chatTitle">Start a conversation</div>
-            <div class="docs__chatSub">Ask about documents, or attach files with the + button</div>
+            <div class="docs__chatTitle">{{ 'chat.empty.title' | translate }}</div>
+            <div class="docs__chatSub">{{ 'chat.empty.subtitle' | translate }}</div>
           </div>
 
           <div *ngFor="let t of chatTurns" class="docs__msgRow docs__msgRow--{{ t.role }}">
@@ -236,27 +260,29 @@
 
         <div class="docs__chatDock">
           <div class="docs__chips">
-            <button type="button" class="docs__chip" (click)="quickPrompt('I want to search a document')">I want to search a document</button>
-            <button type="button" class="docs__chip" (click)="quickPrompt('Show my documents')">Show my documents</button>
+            <button type="button" class="docs__chip" (click)="quickPrompt('I want to search a document')">{{ 'chat.chips.search' | translate }}</button>
+            <button type="button" class="docs__chip" (click)="quickPrompt('Show my documents')">{{ 'chat.chips.show' | translate }}</button>
           </div>
 
           <ul class="docs__chatFiles" *ngIf="chatFiles.length">
             <li *ngFor="let f of chatFiles; let i = index">
               <span class="docs__chatFileName" [title]="f.name">{{ f.name }}</span>
-              <button type="button" (click)="removeChatFile(i)" aria-label="Remove">&times;</button>
+              <button matIconButton type="button" (click)="removeChatFile(i)" [attr.aria-label]="'chat.removeFile' | translate">
+                &times;
+              </button>
             </li>
           </ul>
 
           <div class="docs__ask">
-            <button class="docs__askPlus" type="button" (click)="chatFileInput.click()" [disabled]="chatSending" aria-label="Attach">
-              <svg viewBox="0 0 24 24" fill="none"><path d="M12 5v14M5 12h14" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+            <button class="docs__askPlus" type="button" (click)="chatFileInput.click()" [disabled]="chatSending" [attr.aria-label]="'chat.attach' | translate">
+              <mat-icon svgIcon="attach"></mat-icon>
             </button>
             <input #chatFileInput type="file" hidden multiple (change)="onChatFilePick($event)" />
             <input
               type="text"
               [(ngModel)]="chatInput"
               (keydown.enter)="sendChat()"
-              placeholder="Ask the agent&hellip;"
+              [placeholder]="'chat.placeholder' | translate"
               [disabled]="chatSending"
             />
             <button
@@ -264,9 +290,9 @@
               type="button"
               (click)="sendChat()"
               [disabled]="chatSending || (!chatInput.trim() && !chatFiles.length)"
-              aria-label="Send"
+              [attr.aria-label]="'chat.send' | translate"
             >
-              <svg viewBox="0 0 24 24" fill="none"><path d="M4.3 11.2 19 4.6a.6.6 0 0 1 .82.76l-5.6 14.1a.6.6 0 0 1-1.11.03l-2.5-5.2-5.3-2.1a.6.6 0 0 1 0-1Z" fill="currentColor"/></svg>
+              <mat-icon svgIcon="send"></mat-icon>
             </button>
           </div>
         </div>
@@ -275,8 +301,8 @@
 
     <!-- upload card -->
     <div class="docs__card docs__uploadCard" *ngIf="tab === 'documents' && context?.businessObjectId">
-      <div class="docs__uploadTitle">Add documents to this {{ context?.businessObjectType }}</div>
-      <div class="docs__uploadSub">Files are stored in the connected repository and linked to this record.</div>
+      <div class="docs__uploadTitle">{{ 'upload.title' | translate: { type: context?.businessObjectType } }}</div>
+      <div class="docs__uploadSub">{{ 'upload.subtitle' | translate }}</div>
 
       <div
         class="docs__dropzone"
@@ -286,8 +312,8 @@
         (dragover)="onDragOver($event)"
         (dragleave)="onDragLeave()"
       >
-        <span class="docs__dropIcon" aria-hidden="true"></span>
-        <div class="docs__dropText">Drag a file here, or <span class="docs__dropLink">browse your computer</span></div>
+        <mat-icon class="docs__dropIcon" svgIcon="upload" aria-hidden="true"></mat-icon>
+        <div class="docs__dropText">{{ 'upload.drop.prefix' | translate }} <span class="docs__dropLink">{{ 'upload.drop.browse' | translate }}</span></div>
         <input #fileInput type="file" multiple hidden (change)="onFilePick($event)" />
       </div>
 
@@ -309,37 +335,45 @@
               [class.docs__idpBadge--edited]="cls.docType && cls.edited"
               [title]="cls.error || (cls.reviewRequired ? 'Low confidence — please review' : 'High confidence')"
             >
-              <ng-container *ngIf="cls.docType && cls.edited">{{ cls.docType }} · edited</ng-container>
+              <ng-container *ngIf="cls.docType && cls.edited">{{ cls.docType }} · {{ 'upload.badge.edited' | translate }}</ng-container>
               <ng-container *ngIf="cls.docType && !cls.edited">{{ cls.docType }} · {{ (cls.confidence * 100) | number:'1.0-0' }}%</ng-container>
-              <ng-container *ngIf="!cls.docType">{{ cls.error ? 'not classified' : 'unknown type' }}</ng-container>
+              <ng-container *ngIf="!cls.docType">{{ (cls.error ? 'upload.badge.notClassified' : 'upload.badge.unknown') | translate }}</ng-container>
             </span>
           </button>
-          <button type="button" class="docs__fileRemove" (click)="removeFile(i)" aria-label="Remove">&times;</button>
+          <button class="docs__fileRemove" type="button" (click)="removeFile(i)" [attr.aria-label]="'upload.removeFile' | translate">
+            &times;
+          </button>
         </li>
       </ul>
 
       <label class="docs__field">
-        <span class="docs__fieldLabel">Document type</span>
+        <span class="docs__fieldLabel docs__fieldLabel--loading">
+          {{ 'upload.docType.label' | translate }}
+          <mat-spinner *ngIf="docTypesLoading" diameter="14"></mat-spinner>
+        </span>
         <select class="docs__select" [(ngModel)]="selectedDocType" (ngModelChange)="onDocTypeChange()" [disabled]="docTypesLoading">
           <option value="" disabled selected>
-            {{ docTypesLoading ? 'Loading document types\u2026' : (docTypesError ? 'Couldn\u2019t load types' : 'Choose a document type') }}
+            {{ (docTypesLoading ? 'upload.docType.loading' : (docTypesError ? 'upload.docType.error' : 'upload.docType.choose')) | translate }}
           </option>
           <option *ngFor="let t of docTypes" [value]="t">{{ t }}</option>
         </select>
       </label>
 
       <div class="docs__metaFields" *ngIf="selectedDocType">
-        <div class="docs__metaState" *ngIf="docTypeFieldsLoading">Loading metadata fields\u2026</div>
+        <div class="docs__loadingInline docs__metaState" *ngIf="docTypeFieldsLoading">
+          <span>{{ 'upload.meta.loading' | translate }}</span>
+          <mat-spinner diameter="16"></mat-spinner>
+        </div>
         <div class="docs__metaState docs__metaState--error" *ngIf="docTypeFieldsError">{{ docTypeFieldsError }}</div>
         <div class="docs__metaState" *ngIf="!docTypeFieldsLoading && !docTypeFieldsError && !docTypeFields.length">
-          This document type has no metadata fields on this record.
+          {{ 'upload.meta.none' | translate }}
         </div>
 
-        <div class="docs__metaTitle" *ngIf="!docTypeFieldsLoading && docTypeFields.length">Additional metadata (optional)</div>
+        <div class="docs__metaTitle" *ngIf="!docTypeFieldsLoading && docTypeFields.length">{{ 'upload.meta.title' | translate }}</div>
 
         <ng-container *ngFor="let f of docTypeFields; trackBy: trackByDocTypeField">
           <label class="docs__field docs__field--meta">
-            <span class="docs__fieldLabel">{{ f.label || f.id }}<span *ngIf="f.importable === false"> · preview</span></span>
+            <span class="docs__fieldLabel">{{ f.label || f.id }}<span *ngIf="f.importable === false"> · {{ 'upload.meta.preview' | translate }}</span></span>
             <input
               class="docs__select"
               [class.docs__metaAuto]="!!docTypeFieldValues[f.id]"
@@ -354,22 +388,24 @@
       </div>
 
       <label class="docs__field docs__field--disabled">
-        <span class="docs__fieldLabel">Linked record</span>
+        <span class="docs__fieldLabel">{{ 'upload.linkedRecord' | translate }}</span>
         <input class="docs__select" type="text" [value]="context?.businessObjectId" disabled />
       </label>
-      <div class="docs__uploadNote">Uploads are attached to this record automatically.</div>
+      <div class="docs__uploadNote">{{ 'upload.note' | translate }}</div>
 
       <div class="docs__uploadActions" *ngIf="idpEnabled">
-        <button class="docs__uploadAuxBtn" type="button" (click)="autoClassify()" [disabled]="!canAutoClassify" title="Detect each file's document type with Hyland IDP">
-          ✨ Auto-classify (IDP)
+        <button class="docs__uploadAuxBtn" type="button" (click)="autoClassify()" [disabled]="!canAutoClassify" [matTooltip]="'upload.autoClassify.tooltip' | translate">
+          <mat-spinner *ngIf="showAutoClassifySpinner" diameter="18"></mat-spinner>
+          ✨ {{ 'upload.autoClassify.label' | translate }}
         </button>
       </div>
 
       <p class="docs__uploadStatus" *ngIf="uploadStatus" [class.docs__uploadStatus--error]="uploadError">{{ uploadStatus }}</p>
 
       <button class="docs__uploadBtn" type="button" [disabled]="!canUpload" (click)="doUpload()">
-        <span class="docs__uploadBtnIcon" aria-hidden="true">&#8593;</span>
-        <span class="docs__uploadBtnText">{{ uploading ? 'Uploading\u2026' : 'Upload document' }}</span>
+        <mat-icon class="docs__uploadBtnIcon" svgIcon="upload" aria-hidden="true"></mat-icon>
+        <mat-spinner *ngIf="showUploadSpinner" diameter="18"></mat-spinner>
+        <span class="docs__uploadBtnText">{{ (uploading ? 'upload.cta.uploading' : 'upload.cta.upload') | translate }}</span>
       </button>
     </div>
   </div>
@@ -377,12 +413,17 @@
   <!-- in-panel viewer overlay (ported from the old popup) -->
   <div class="docs__viewer" *ngIf="viewerOpen">
     <div class="docs__viewerBar">
-      <button class="docs__viewerBack" type="button" (click)="closeViewer()">&larr; Back</button>
+      <button class="docs__viewerBack" type="button" (click)="closeViewer()">
+        <mat-icon svgIcon="arrow_left" aria-hidden="true"></mat-icon>{{ 'viewer.back' | translate }}
+      </button>
       <span class="docs__viewerTitle" [title]="viewerTitle">{{ viewerTitle }}</span>
-      <a class="docs__viewerOpenTab" *ngIf="viewerUrl" [href]="viewerUrl" target="_blank" rel="noopener" (click)="closeViewer()">Open in tab &#8599;</a>
+      <a class="docs__viewerOpenTab" *ngIf="viewerUrl" [href]="viewerUrl" target="_blank" rel="noopener" (click)="closeViewer()">{{ 'viewer.openTab' | translate }}</a>
     </div>
     <div class="docs__viewerBody">
-      <div class="docs__viewerLoading" *ngIf="viewerLoading">Loading viewer&hellip;</div>
+      <div class="docs__viewerLoading" *ngIf="viewerLoading">
+        <mat-spinner diameter="38"></mat-spinner>
+        <span>{{ 'viewer.loading' | translate }}</span>
+      </div>
       <iframe
         *ngIf="viewerSafeUrl"
         class="docs__viewerFrame"
@@ -392,51 +433,38 @@
         allow="storage-access"
       ></iframe>
       <div class="docs__viewerFallback" *ngIf="viewerFallback">
-        <p class="docs__viewerFallbackMsg">{{ viewerError || 'The viewer is taking a while or can\u2019t be embedded here.' }}</p>
-        <button class="docs__viewerFallbackBtn" type="button" *ngIf="viewerUrl" (click)="openInViewerWindow()">Open in viewer window</button>
-        <a class="docs__viewerFallbackLink" *ngIf="viewerUrl" [href]="viewerUrl" target="_blank" rel="noopener" (click)="closeViewer()">or open in a new tab</a>
+        <p class="docs__viewerFallbackMsg">{{ viewerError || ('viewer.fallback.message' | translate) }}</p>
+        <button class="docs__viewerFallbackBtn" type="button" *ngIf="viewerUrl" (click)="openInViewerWindow()">{{ 'viewer.fallback.openWindow' | translate }}</button>
+        <a class="docs__viewerFallbackLink" *ngIf="viewerUrl" [href]="viewerUrl" target="_blank" rel="noopener" (click)="closeViewer()">{{ 'viewer.fallback.openTab' | translate }}</a>
       </div>
     </div>
   </div>
 
-  <div
-    class="docs__menu docs__menu--floating"
-    *ngIf="menuDoc"
-    [style.top.px]="menuTop"
-    [style.left.px]="menuLeft"
-    (click)="$event.stopPropagation()"
-  >
-    <button class="docs__menuItem" type="button" (click)="download(menuDoc)">
-      <span class="docs__menuIcon docs__menuIcon--download" aria-hidden="true"></span>
-      <span>Download</span>
+  <mat-menu #rowMenu="matMenu" class="satori">
+    <button mat-menu-item type="button" (click)="download(menuDoc!)">
+      <mat-icon svgIcon="download"></mat-icon>
+      <span>{{ 'documents.menu.download' | translate }}</span>
     </button>
-    <button class="docs__menuItem docs__menuItem--danger" type="button" (click)="remove(menuDoc)">
-      <span class="docs__menuIcon docs__menuIcon--delete" aria-hidden="true"></span>
-      <span>Delete</span>
+    <button mat-menu-item type="button" class="docs__menuItem--danger" (click)="remove(menuDoc!)">
+      <mat-icon svgIcon="trash"></mat-icon>
+      <span>{{ 'documents.menu.delete' | translate }}</span>
     </button>
-  </div>
+  </mat-menu>
 
-  <!-- delete confirmation popup (matches the Figma mockup) -->
-  <div class="docs__modalScrim" *ngIf="deleteTarget" (click)="cancelDelete()">
-    <div class="docs__modal" (click)="$event.stopPropagation()" role="dialog" aria-modal="true">
-      <h3 class="docs__modalTitle">Delete file?</h3>
+  <!-- delete confirmation dialog (MatDialog, Satori-themed) -->
+  <ng-template #deleteDialog>
+    <h3 mat-dialog-title>{{ 'delete.title' | translate }}</h3>
+    <mat-dialog-content>
       <p class="docs__modalBody">
-        <strong>{{ deleteTarget.name || deleteTarget.docId }}</strong> will be permanently deleted from the
-        repository and unlinked from this record. This action cannot be undone.
+        <strong>{{ deleteTarget?.name || deleteTarget?.docId }}</strong> {{ 'delete.body' | translate }}
       </p>
-      <p class="docs__modalError" *ngIf="deleteError">{{ deleteError }}</p>
-      <div class="docs__modalActions">
-        <button class="docs__modalBtn docs__modalBtn--ghost" type="button" (click)="cancelDelete()" [disabled]="deleting">Cancel</button>
-        <button class="docs__modalBtn docs__modalBtn--primary" type="button" (click)="confirmDelete()" [disabled]="deleting">
-          {{ deleting ? 'Deleting\u2026' : 'Delete' }}
-        </button>
-      </div>
-    </div>
-  </div>
-
-  <div class="docs__toast" *ngIf="actionToast">
-    <span class="docs__toastIcon" [class.docs__toastIcon--loading]="actionToast.kind === 'loading'" [class.docs__toastIcon--success]="actionToast.kind === 'success'" [class.docs__toastIcon--error]="actionToast.kind === 'error'" aria-hidden="true"></span>
-    <span class="docs__toastText">{{ actionToast.text }}</span>
-    <button class="docs__toastDismiss" type="button" (click)="dismissActionToast()">Dismiss</button>
-  </div>
+      <p class="docs__modalError" *ngIf="deleteError" role="alert">{{ deleteError }}</p>
+    </mat-dialog-content>
+    <mat-dialog-actions align="end">
+      <button matButton type="button" (click)="cancelDelete()" [disabled]="deleting">{{ 'delete.cancel' | translate }}</button>
+      <button matButton="filled" type="button" (click)="confirmDelete()" [disabled]="deleting">
+        {{ (deleting ? 'delete.deleting' : 'delete.confirm') | translate }}
+      </button>
+    </mat-dialog-actions>
+  </ng-template>
 </section>

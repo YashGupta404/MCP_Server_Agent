@@ -1,11 +1,17 @@
-import { Component, ElementRef, HostListener, NgZone, OnDestroy, OnInit, ViewChild } from '@angular/core';
+import { ChangeDetectorRef, Component, ElementRef, HostListener, NgZone, OnDestroy, OnInit, TemplateRef, ViewChild } from '@angular/core';
+import { MatDialog, MatDialogRef } from '@angular/material/dialog';
+import { MatSnackBar, MatSnackBarRef, TextOnlySnackBar } from '@angular/material/snack-bar';
 import { DomSanitizer, SafeHtml, SafeResourceUrl } from '@angular/platform-browser';
 import { Router } from '@angular/router';
+import { TranslateService } from '@ngx-translate/core';
+import { AgentAuthService } from '../../services/auth/agent-auth.service';
+import { BffApiService } from '../../services/bff/bff-api.service';
 import { ChatService } from '../../services/chat.service';
 import { ContextDetectorService } from '../../services/context-detector.service';
 import { DocTypeField, DocumentService, IdpClassifyResult, QueryInfo, QueryInput } from '../../services/document.service';
 import { Settings } from '../../services/settings';
 import { SystemConfigService } from '../../services/system-config.service';
+import { ThemeService } from '../../services/theme.service';
 import { RecordContext } from '../../types/record-context.model';
 import { UcebDocument } from '../../types/uceb-document.model';
 import { renderMarkdown } from '../../utils/markdown';
@@ -19,6 +25,9 @@ const ext: any = (globalThis as any).chrome ?? (globalThis as any).browser;
   standalone: false,
 })
 export class DocumentsView implements OnInit, OnDestroy {
+  profileName = '';
+  profileEmail = '';
+  profileInitials = '--';
   tab: 'documents' | 'chat' = 'documents';
   loading = true;
   error = '';
@@ -70,6 +79,8 @@ export class DocumentsView implements OnInit, OnDestroy {
   private actionToastTimer: any;
 
   constructor(
+    private readonly auth: AgentAuthService,
+    private readonly bff: BffApiService,
     private readonly ctxSvc: ContextDetectorService,
     private readonly docSvc: DocumentService,
     private readonly systems: SystemConfigService,
@@ -77,9 +88,15 @@ export class DocumentsView implements OnInit, OnDestroy {
     private readonly zone: NgZone,
     private readonly sanitizer: DomSanitizer,
     private readonly chat: ChatService,
+    readonly theme: ThemeService,
+    private readonly dialog: MatDialog,
+    private readonly snackBar: MatSnackBar,
+    private readonly translate: TranslateService,
+    private readonly cdr: ChangeDetectorRef,
   ) {}
 
   async ngOnInit(): Promise<void> {
+    void this.loadProfile();
     try {
       const { active } = await this.systems.list();
       this.activeSystem = active;
@@ -93,10 +110,28 @@ export class DocumentsView implements OnInit, OnDestroy {
     if (this.idpEnabled) this.loadIdpStatus();
   }
 
+  private async loadProfile(): Promise<void> {
+    try {
+      const profile = await this.bff.getProfile();
+      this.profileName = profile.name || '';
+      this.profileEmail = profile.email || '';
+      this.profileInitials = profile.initials || '--';
+      this.cdr.detectChanges();
+    } catch {
+      // Non-fatal: keep the header usable even if the profile call fails.
+    }
+  }
+
+  async signOut(): Promise<void> {
+    await this.auth.clearSession();
+    await this.router.navigate(['/sign-in']);
+  }
+
   ngOnDestroy(): void {
     this.unsub?.();
     clearTimeout(this.debounce);
     clearTimeout(this.viewerWatchdog);
+    clearTimeout(this.viewerLoadingTimer);
     clearTimeout(this.actionToastTimer);
   }
 
@@ -147,7 +182,11 @@ export class DocumentsView implements OnInit, OnDestroy {
     } catch (e: any) {
       this.error = e?.message || 'Could not load documents.';
     } finally {
-      this.loading = false;
+      // Async continuations can land outside Angular's zone — force a tick so the table renders.
+      this.zone.run(() => {
+        this.loading = false;
+        this.cdr.detectChanges();
+      });
     }
   }
 
@@ -187,6 +226,24 @@ export class DocumentsView implements OnInit, OnDestroy {
     if (['tif', 'tiff', 'png', 'jpg', 'jpeg', 'gif', 'bmp'].includes(e)) return 'img';
     if (e === 'txt') return 'txt';
     return 'file';
+  }
+
+  // Maps the file kind to a Satori icon name for the document-type badge.
+  fileIconName(doc: UcebDocument): string {
+    switch (this.fileKind(doc)) {
+      case 'pdf':
+        return 'pdf';
+      case 'doc':
+        return 'document';
+      case 'xls':
+        return 'excel';
+      case 'img':
+        return 'image';
+      case 'txt':
+        return 'note';
+      default:
+        return 'document';
+    }
   }
 
   close(): void {
@@ -310,6 +367,7 @@ export class DocumentsView implements OnInit, OnDestroy {
   queryStatus = '';
   queryStatusError = false;
   querySearching = false;
+  queryFieldsLoading = false;
   queryActive = false;
   private queryMetaCache: Record<string, { inputs: QueryInput[]; cols: string[] }> = {};
 
@@ -353,6 +411,7 @@ export class DocumentsView implements OnInit, OnDestroy {
     this.queryStatusError = false;
     const qid = this.selectedQueryId;
     if (!qid) return;
+    this.queryFieldsLoading = true;
     try {
       let cached = this.queryMetaCache[qid];
       if (!cached) {
@@ -371,6 +430,8 @@ export class DocumentsView implements OnInit, OnDestroy {
     } catch (e: any) {
       this.queryStatus = e?.message || 'Could not load query fields.';
       this.queryStatusError = true;
+    } finally {
+      this.queryFieldsLoading = false;
     }
   }
 
@@ -594,6 +655,7 @@ export class DocumentsView implements OnInit, OnDestroy {
   viewerFallback = false;
   viewerError = '';
   private viewerWatchdog: any;
+  private viewerLoadingTimer: any;
 
   // Clicking a document row opens it in the in-panel CIC viewer, exactly like the old plugin:
   // resolve the viewer URL from the MCP, then embed it in the overlay iframe.
@@ -619,30 +681,50 @@ export class DocumentsView implements OnInit, OnDestroy {
 
   private openViewer(url: string, title: string): void {
     clearTimeout(this.viewerWatchdog);
+    clearTimeout(this.viewerLoadingTimer);
     this.viewerUrl = url;
     this.viewerSafeUrl = this.sanitizer.bypassSecurityTrustResourceUrl(url);
     this.viewerTitle = title || 'Document';
     this.viewerFallback = false;
     this.viewerLoading = true;
-    // A real framing block never fires 'load'; after a generous wait offer the fallback.
+    // A cross-origin iframe doing login redirects fires 'load' unreliably, so don't gate the overlay
+    // on it — clear it shortly so the embedded CIC page shows automatically (no extra click needed).
+    this.viewerLoadingTimer = setTimeout(
+      () =>
+        this.zone.run(() => {
+          this.viewerLoading = false;
+          this.cdr.detectChanges();
+        }),
+      1200,
+    );
+    // A real framing block never renders; after a generous wait offer the fallback.
     this.viewerWatchdog = setTimeout(() => this.zone.run(() => this.showViewerFallback()), 30000);
   }
 
   onViewerLoaded(): void {
     clearTimeout(this.viewerWatchdog);
     if (!this.viewerOpen || !this.viewerSafeUrl) return;
-    this.viewerLoading = false;
-    this.viewerFallback = false;
+    // The iframe 'load' fires once; with zone event coalescing the repaint would otherwise wait for
+    // the next interaction, leaving the "Loading viewer" overlay stuck over the loaded page.
+    this.zone.run(() => {
+      this.viewerLoading = false;
+      this.viewerFallback = false;
+      this.cdr.detectChanges();
+    });
   }
 
   private showViewerFallback(): void {
     clearTimeout(this.viewerWatchdog);
-    this.viewerLoading = false;
-    this.viewerFallback = true;
+    this.zone.run(() => {
+      this.viewerLoading = false;
+      this.viewerFallback = true;
+      this.cdr.detectChanges();
+    });
   }
 
   closeViewer(): void {
     clearTimeout(this.viewerWatchdog);
+    clearTimeout(this.viewerLoadingTimer);
     this.viewerOpen = false;
     this.viewerSafeUrl = null;
     this.viewerUrl = '';
@@ -673,39 +755,44 @@ export class DocumentsView implements OnInit, OnDestroy {
   }
 
   private async runDownload(doc: UcebDocument): Promise<void> {
-    this.showActionToast('loading', `Downloading ${doc.name || doc.docId}`);
+    const name = doc.name || doc.docId;
+    this.showActionToast('loading', this.translate.instant('actions.downloading', { name }));
     try {
       const res = await this.docSvc.downloadDocument(doc.docId, doc.name);
       if (!res.saved && res.viewerUrl) {
-        this.showActionToast('success', `Opened ${doc.name || doc.docId} in the viewer`);
+        this.showActionToast('success', this.translate.instant('actions.openedInViewer', { name }));
         this.viewerOpen = true;
         this.viewerLoading = true;
         this.openViewer(res.viewerUrl, doc.name || doc.docId);
         return;
       }
-      this.showActionToast('success', `Downloaded ${doc.name || doc.docId}`);
+      this.showActionToast('success', this.translate.instant('actions.downloaded', { name }));
     } catch (e: any) {
-      this.showActionToast('error', e?.message || 'Could not download this document.');
+      this.showActionToast('error', e?.message || this.translate.instant('actions.downloadError'));
     }
   }
 
-  // ---- delete (with confirmation popup, matching the Figma mockup) ----
+  // ---- delete (confirmation via MatDialog) ----
+  @ViewChild('deleteDialog') private deleteDialog!: TemplateRef<unknown>;
+  private deleteDialogRef?: MatDialogRef<unknown>;
+  private snackRef?: MatSnackBarRef<TextOnlySnackBar>;
   deleteTarget: UcebDocument | null = null;
   deleting = false;
   deleteError = '';
-  actionToast: { kind: 'loading' | 'success' | 'error'; text: string } | null = null;
 
   remove(doc: UcebDocument): void {
-    this.menuFor = '';
-    this.menuDoc = null;
     this.deleteError = '';
     this.deleteTarget = doc;
+    this.deleteDialogRef = this.dialog.open(this.deleteDialog, { panelClass: 'satori', autoFocus: false });
+    this.deleteDialogRef.afterClosed().subscribe(() => {
+      this.deleteTarget = null;
+      this.deleteError = '';
+    });
   }
 
   cancelDelete(): void {
     if (this.deleting) return;
-    this.deleteTarget = null;
-    this.deleteError = '';
+    this.deleteDialogRef?.close();
   }
 
   async confirmDelete(): Promise<void> {
@@ -717,27 +804,28 @@ export class DocumentsView implements OnInit, OnDestroy {
       await this.docSvc.deleteDocument(doc.docId);
       this.documents = this.documents.filter((d) => d.docId !== doc.docId);
       this.recompute();
-      this.deleteTarget = null;
-      this.showActionToast('success', `"${doc.name || doc.docId}" deleted`);
+      this.deleteDialogRef?.close();
+      this.showActionToast('success', this.translate.instant('actions.deleted', { name: doc.name || doc.docId }));
     } catch (e: any) {
-      this.deleteError = e?.message || 'Could not delete this document.';
+      this.deleteError = e?.message || this.translate.instant('actions.deleteError');
     } finally {
       this.deleting = false;
     }
   }
 
   dismissActionToast(): void {
-    clearTimeout(this.actionToastTimer);
-    this.actionToast = null;
+    this.snackRef?.dismiss();
   }
 
   private showActionToast(kind: 'loading' | 'success' | 'error', text: string): void {
-    clearTimeout(this.actionToastTimer);
-    this.actionToast = { kind, text };
-    if (kind !== 'loading') {
-      this.actionToastTimer = setTimeout(() => {
-        this.actionToast = null;
-      }, 5000);
+    this.snackRef?.dismiss();
+    if (kind === 'loading') {
+      this.snackRef = this.snackBar.open(text, undefined, { panelClass: 'satori' });
+    } else {
+      this.snackRef = this.snackBar.open(text, this.translate.instant('actions.dismiss'), {
+        panelClass: 'satori',
+        duration: 5000,
+      });
     }
   }
 
@@ -1060,6 +1148,20 @@ export class DocumentsView implements OnInit, OnDestroy {
     );
   }
 
+  get showUploadSpinner(): boolean {
+    return this.uploading && !this.idpBusy;
+  }
+
+  get showAutoClassifySpinner(): boolean {
+    return this.idpBusy;
+  }
+
+  private uploadTargetLabel(): string {
+    const type = this.context?.businessObjectType || 'record';
+    const prettyType = type ? `${type.charAt(0).toUpperCase()}${type.slice(1)}` : 'Record';
+    return `${prettyType} ${this.context?.businessObjectId || ''}`.trim();
+  }
+
   private metaForFile(file: File): Array<{ name: string; value: string }> {
     if (file.name === this.selectedUploadName) return this.collectUploadMeta();
     const cls = this.fileClassifications[file.name];
@@ -1123,10 +1225,13 @@ export class DocumentsView implements OnInit, OnDestroy {
       }
 
       if (uploaded.length) {
-        const target = `${this.context.businessObjectType || 'record'} ${this.context.businessObjectId || ''}`.trim();
-        const parts = [
-          uploaded.length === 1 ? `“${uploaded[0]}” uploaded to ${target}` : `${uploaded.length} files uploaded to ${target}`,
-        ];
+        const target = this.uploadTargetLabel();
+        const toastText = uploaded.length === 1
+          ? this.translate.instant('actions.uploadedToRecord', { name: uploaded[0], target })
+          : this.translate.instant('actions.uploadedManyToRecord', { count: uploaded.length, target });
+        this.showActionToast('success', toastText);
+
+        const parts: string[] = [];
         if (skipped.length) parts.push(`Skipped: ${skipped.join(', ')}`);
         if (errors.length) parts.push(`Failed: ${errors.join('; ')}`);
         this.uploadStatus = parts.join(' · ');

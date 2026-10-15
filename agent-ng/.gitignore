@@ -40,3 +40,11 @@ testem.log
 # System files
 .DS_Store
 Thumbs.db
+
+# Local npm auth for Satori private registry (never commit the real token)
+.npmrc
+
+# Transient build/install logs (terminal capture helpers)
+build.log
+build.clean.txt
+install.log

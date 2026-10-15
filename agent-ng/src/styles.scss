@@ -1,13 +1,25 @@
 /* Global styles for the Hyland Integrations Agent panel. */
-html,
-body {
-  margin: 0;
+@use '@hylandsoftware/satori-ui/theme' as satori;
+
+// Emit the Satori MD3 theme (colors, typography, system variables) on the root.
+// Satori tokens use the CSS light-dark() function, so the active scheme is driven
+// by `color-scheme` — toggled between light and dark by the ThemeService.
+html {
+  @include satori.theme();
+  color-scheme: light;
   height: 100%;
 }
 
+html.dark-theme {
+  color-scheme: dark;
+}
+
 body {
-  font-family: Inter, 'Segoe UI Variable Text', 'Segoe UI', system-ui, -apple-system, Roboto, Arial, sans-serif;
-  color: #1b1b2f;
+  margin: 0;
+  height: 100%;
+  background: var(--mat-sys-surface);
+  color: var(--mat-sys-on-surface);
+  font: var(--mat-sys-body-medium);
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 }
@@ -15,3 +27,4 @@ body {
 * {
   box-sizing: border-box;
 }
+

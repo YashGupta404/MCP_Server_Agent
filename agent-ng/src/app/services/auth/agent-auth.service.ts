@@ -1,4 +1,4 @@
-import { Injectable } from '@angular/core';
+import { Injectable, NgZone } from '@angular/core';
 import { BehaviorSubject } from 'rxjs';
 import { Settings } from '../settings';
 
@@ -24,6 +24,8 @@ export class AgentAuthService {
   private readonly _signedIn$ = new BehaviorSubject<boolean>(false);
   readonly signedIn$ = this._signedIn$.asObservable();
 
+  constructor(private readonly zone: NgZone) {}
+
   get isSignedIn(): boolean {
     return this._signedIn$.value;
   }
@@ -35,9 +37,15 @@ export class AgentAuthService {
     return ext?.storage?.session ?? ext?.storage?.local;
   }
 
-  async getSession(): Promise<string | null> {
-    const r = await this.sessionStore?.get(SESSION_KEY);
-    return r?.[SESSION_KEY] ?? null;
+  // chrome.storage callbacks resolve outside Angular's zone, which would strand any async state
+  // update (no change detection). Resolve through the callback form and re-enter the zone so the
+  // awaited continuation — and every component that updates state after it — triggers CD.
+  getSession(): Promise<string | null> {
+    const store = this.sessionStore;
+    if (!store) return Promise.resolve(null);
+    return new Promise<string | null>((resolve) => {
+      store.get(SESSION_KEY, (r: any) => this.zone.run(() => resolve(r?.[SESSION_KEY] ?? null)));
+    });
   }
 
   async login(options: LoginOptions = {}): Promise<void> {

@@ -1,4 +1,4 @@
-import { Injectable } from '@angular/core';
+import { Injectable, NgZone } from '@angular/core';
 import { AgentAuthService } from '../auth/agent-auth.service';
 import { Settings } from '../settings';
 
@@ -6,23 +6,43 @@ import { Settings } from '../settings';
 // maps error payloads to thrown Errors. Replaces the per-call fetch boilerplate from the old agent.js.
 @Injectable({ providedIn: 'root' })
 export class BffApiService {
-  constructor(private readonly auth: AgentAuthService) {}
+  constructor(private readonly auth: AgentAuthService, private readonly zone: NgZone) {}
+
+  getProfile(): Promise<{ name: string; email: string; givenName: string; familyName: string; initials: string }> {
+    return this.get('/api/profile');
+  }
 
   private get base(): string {
     return Settings.config?.bffBaseUrl ?? '';
   }
 
   get<T>(path: string): Promise<T> {
-    return this.request<T>('GET', path);
+    return this.inZone(this.request<T>('GET', path));
   }
 
   post<T>(path: string, body?: unknown): Promise<T> {
-    return this.request<T>('POST', path, body);
+    return this.inZone(this.request<T>('POST', path, body));
   }
 
   // Raw fetch (keeps the Response) for binary/alternate content types such as a document download,
   // where the body may be a file blob (Salesforce) or a JSON viewer-url envelope (Workday).
   async getRaw(path: string): Promise<Response> {
+    return this.inZone(this.rawFetch(path));
+  }
+
+  // fetch/chrome.storage continuations resolve outside Angular's change-detection zone, which would
+  // strand every state update that follows a BFF call (no re-render). Re-settle the promise inside
+  // the zone so a change-detection tick fires once the data lands — fixes it for every caller.
+  private inZone<T>(p: Promise<T>): Promise<T> {
+    return new Promise<T>((resolve, reject) => {
+      p.then(
+        (v) => this.zone.run(() => resolve(v)),
+        (e) => this.zone.run(() => reject(e)),
+      );
+    });
+  }
+
+  private async rawFetch(path: string): Promise<Response> {
     const session = await this.auth.getSession();
     if (!session) throw new Error('Not signed in.');
 

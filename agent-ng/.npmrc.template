@@ -1,0 +1,14 @@
+# Satori private registry access — TEMPLATE
+#
+# The Satori packages (@hylandsoftware/*, @hyland/*) are published to Hyland's
+# private GitHub Packages registry. To install them:
+#
+# 1. Create a GitHub Personal Access Token (classic) with the `read:packages` scope.
+# 2. Copy this file to `.npmrc` in this folder (agent-ng/).
+# 3. Replace ${GITHUB_TOKEN} below with your token, OR set a GITHUB_TOKEN env var.
+#
+# The real `.npmrc` is gitignored so your token is never committed.
+
+@hylandsoftware:registry=https://npm.pkg.github.com
+@hyland:registry=https://npm.pkg.github.com
+//npm.pkg.github.com/:_authToken=${GITHUB_TOKEN}

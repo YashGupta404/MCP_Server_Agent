@@ -84,6 +84,56 @@ async Task<string> ActiveSystemFriendlyNameAsync(CancellationToken ct)
     }
 }
 
+string UserInfoEndpoint()
+{
+    if (!string.IsNullOrWhiteSpace(auth.TokenEndpoint) && auth.TokenEndpoint.Contains("/connect/token", StringComparison.OrdinalIgnoreCase))
+        return auth.TokenEndpoint.Replace("/connect/token", "/connect/userinfo", StringComparison.OrdinalIgnoreCase);
+    return auth.AuthorizeEndpoint.Replace("/connect/authorize", "/connect/userinfo", StringComparison.OrdinalIgnoreCase);
+}
+
+async Task<UserSession?> EnsureFreshSessionAsync(string sessionId, UserSession session)
+{
+    if (DateTimeOffset.UtcNow < session.ExpiresAt || string.IsNullOrEmpty(session.RefreshToken))
+        return session;
+
+    var http = httpFactory.CreateClient();
+    var refreshResp = await http.PostAsync(auth.TokenEndpoint, new FormUrlEncodedContent(new Dictionary<string, string>
+    {
+        ["grant_type"] = "refresh_token",
+        ["refresh_token"] = session.RefreshToken!,
+        ["client_id"] = auth.ClientId,
+        ["client_secret"] = auth.ClientSecret,
+    }));
+    var refreshBody = await refreshResp.Content.ReadAsStringAsync();
+    if (!refreshResp.IsSuccessStatusCode)
+    {
+        log.LogWarning("Refresh failed {Status}: {Body}", (int)refreshResp.StatusCode, refreshBody);
+        return null;
+    }
+
+    return sessions.Save(sessionId, JsonSerializer.Deserialize<TokenResponse>(refreshBody)!);
+}
+
+static string ComputeInitials(string? name, string? email, string? givenName = null, string? familyName = null)
+{
+    if (!string.IsNullOrWhiteSpace(givenName) && !string.IsNullOrWhiteSpace(familyName))
+        return string.Concat(givenName.Trim()[0], familyName.Trim()[0]).ToUpperInvariant();
+
+    if (!string.IsNullOrWhiteSpace(name) && !name.Contains('@'))
+    {
+        var parts = name.Split(' ', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        if (parts.Length == 1) return parts[0][..Math.Min(2, parts[0].Length)].ToUpperInvariant();
+        return string.Concat(parts.First()[0], parts.Last()[0]).ToUpperInvariant();
+    }
+
+    var local = (email ?? string.Empty).Split('@', 2)[0];
+    var plusIdx = local.IndexOf('+');
+    if (plusIdx >= 0) local = local[..plusIdx];
+    var segs = local.Split(new[] { '.', '_', '-' }, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+    if (segs.Length == 1) return segs[0][..Math.Min(2, segs[0].Length)].ToUpperInvariant();
+    return string.Concat(segs.First()[0], segs.Last()[0]).ToUpperInvariant();
+}
+
 // ---------- Exchange an auth code (from the extension's PKCE flow) for a session ----------
 // The extension runs the interactive PKCE login (redirect_uri = its chromiumapp.org URL, which
 // IAM accepts) and posts the resulting code + verifier here. We add the CLIENT SECRET and do the
@@ -124,6 +174,53 @@ app.MapPost("/auth/exchange", async (ExchangeRequest req) =>
     LogTokenEntitlements(token.access_token, token.scope);
 
     return Results.Json(new { session = sessionId });
+});
+
+app.MapGet("/api/profile", async (HttpContext ctx) =>
+{
+    var sessionId = ctx.Request.Headers["X-BFF-Session"].ToString();
+    if (string.IsNullOrEmpty(sessionId) || !sessions.TryGet(sessionId, out var session))
+        return Results.Json(new { error = "not_authenticated" }, statusCode: 401);
+
+    session = await EnsureFreshSessionAsync(sessionId, session!);
+    if (session is null)
+        return Results.Json(new { error = "session_expired" }, statusCode: 401);
+
+    try
+    {
+        var http = httpFactory.CreateClient();
+        using var reqMsg = new HttpRequestMessage(HttpMethod.Get, UserInfoEndpoint());
+        reqMsg.Headers.TryAddWithoutValidation("Authorization", $"Bearer {session.AccessToken}");
+        reqMsg.Headers.TryAddWithoutValidation("Accept", "application/json");
+
+        using var resp = await http.SendAsync(reqMsg);
+        var body = await resp.Content.ReadAsStringAsync();
+        if (!resp.IsSuccessStatusCode)
+        {
+            log.LogError("/api/profile userinfo failed {Status}: {Body}", (int)resp.StatusCode, body);
+            return Results.Json(new { error = "userinfo_failed", detail = body }, statusCode: 502);
+        }
+
+        var root = JsonNode.Parse(body);
+        var name = root?["name"]?.ToString() ?? string.Empty;
+        var email = root?["preferred_username"]?.ToString() ?? root?["email"]?.ToString() ?? string.Empty;
+        var givenName = root?["given_name"]?.ToString() ?? string.Empty;
+        var familyName = root?["family_name"]?.ToString() ?? string.Empty;
+
+        return Results.Json(new
+        {
+            name,
+            email,
+            givenName,
+            familyName,
+            initials = ComputeInitials(name, email, givenName, familyName)
+        });
+    }
+    catch (Exception ex)
+    {
+        log.LogError(ex, "/api/profile failed");
+        return Results.Json(new { error = "profile_failed", detail = ex.Message }, statusCode: 502);
+    }
 });
 
 // Decodes a JWT's payload (no signature check — diagnostics only) and logs the claims that gate

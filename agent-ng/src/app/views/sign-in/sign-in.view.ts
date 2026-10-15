@@ -1,5 +1,6 @@
 import { Component, OnInit } from '@angular/core';
 import { Router } from '@angular/router';
+import { TranslateService } from '@ngx-translate/core';
 import { AgentAuthService } from '../../services/auth/agent-auth.service';
 import { SystemConfigService } from '../../services/system-config.service';
 
@@ -17,6 +18,7 @@ export class SignInView implements OnInit {
     private readonly auth: AgentAuthService,
     private readonly systems: SystemConfigService,
     private readonly router: Router,
+    private readonly translate: TranslateService,
   ) {}
 
   async ngOnInit(): Promise<void> {
@@ -37,7 +39,7 @@ export class SignInView implements OnInit {
       await this.auth.login();
       this.router.navigate(['/systems']);
     } catch (e: any) {
-      this.error = e?.message || 'Sign-in failed. Please try again.';
+      this.error = e?.message || this.translate.instant('signIn.error');
     } finally {
       this.busy = false;
     }

@@ -1,5 +1,8 @@
-import { Component, OnInit } from '@angular/core';
+import { ChangeDetectorRef, Component, NgZone, OnInit } from '@angular/core';
 import { Router } from '@angular/router';
+import { TranslateService } from '@ngx-translate/core';
+import { SatTagCategory } from '@hylandsoftware/satori-ui/tag';
+import { BffApiService } from '../../services/bff/bff-api.service';
 import { SystemConfigService } from '../../services/system-config.service';
 import { SystemConfig } from '../../types/system-config.model';
 
@@ -10,6 +13,7 @@ import { SystemConfig } from '../../types/system-config.model';
   standalone: false,
 })
 export class EcmPickerView implements OnInit {
+  profileInitials = '--';
   loading = true;
   error = '';
   configs: SystemConfig[] = [];
@@ -19,17 +23,40 @@ export class EcmPickerView implements OnInit {
 
   readonly skeletons = [1, 2, 3, 4, 5];
 
-  constructor(private readonly systems: SystemConfigService, private readonly router: Router) {}
+  constructor(
+    private readonly bff: BffApiService,
+    private readonly systems: SystemConfigService,
+    private readonly router: Router,
+    private readonly translate: TranslateService,
+    private readonly zone: NgZone,
+    private readonly cdr: ChangeDetectorRef,
+  ) {}
 
   async ngOnInit(): Promise<void> {
+    void this.loadProfile();
     try {
       const { configs, active } = await this.systems.list();
       this.configs = configs;
       this.active = active;
     } catch (e: any) {
-      this.error = e?.message || 'Could not load content systems.';
+      this.error = e?.message || this.translate.instant('ecm.loadError');
     } finally {
-      this.loading = false;
+      // chrome.storage/fetch continuations can land outside Angular's zone — force a tick so the
+      // loaded list actually renders instead of staying on the skeletons.
+      this.zone.run(() => {
+        this.loading = false;
+        this.cdr.detectChanges();
+      });
+    }
+  }
+
+  private async loadProfile(): Promise<void> {
+    try {
+      const profile = await this.bff.getProfile();
+      this.profileInitials = profile.initials || '--';
+      this.cdr.detectChanges();
+    } catch {
+      /* non-fatal */
     }
   }
 
@@ -42,18 +69,18 @@ export class EcmPickerView implements OnInit {
       this.connected = this.active;
       this.router.navigate(['/documents']);
     } catch (e: any) {
-      this.error = e?.message || 'Could not connect to that system.';
+      this.error = e?.message || this.translate.instant('ecm.connectError');
     } finally {
       this.selecting = '';
     }
   }
 
-  badgeClass(systemType: string): string {
+  badgeCategory(systemType: string): SatTagCategory {
     const t = (systemType || '').toLowerCase();
-    if (t.includes('onbase')) return 'ecm__badge--onbase';
-    if (t.includes('cic')) return 'ecm__badge--cic';
-    if (t.includes('nuxeo')) return 'ecm__badge--nuxeo';
-    return 'ecm__badge--generic';
+    if (t.includes('onbase')) return 'blue';
+    if (t.includes('cic')) return 'green';
+    if (t.includes('nuxeo')) return 'teal';
+    return 'gray';
   }
 
   close(): void {

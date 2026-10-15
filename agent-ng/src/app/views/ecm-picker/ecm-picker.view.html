@@ -8,20 +8,21 @@
       </div>
     </div>
     <div class="ecm__headerRight">
-      <span class="ecm__avatar"><span class="ecm__avatarDot" aria-hidden="true"></span></span>
-      <button class="ecm__close" type="button" (click)="close()" aria-label="Close">&times;</button>
+      <button matIconButton type="button" (click)="close()" [attr.aria-label]="'ecm.close' | translate">
+        &times;
+      </button>
     </div>
   </header>
 
   <div class="ecm__body">
-    <h1 class="ecm__title">Choose your content system</h1>
-    <p class="ecm__subtitle">Select the ECM system to connect to for this session</p>
+    <h1 class="ecm__title">{{ 'ecm.title' | translate }}</h1>
+    <p class="ecm__subtitle">{{ 'ecm.subtitle' | translate }}</p>
 
     <div class="ecm__list" *ngIf="loading">
       <div class="ecm__skeleton" *ngFor="let s of skeletons"></div>
     </div>
 
-    <p class="ecm__error" *ngIf="error">{{ error }}</p>
+    <p class="ecm__error" *ngIf="error" role="alert">{{ error }}</p>
 
     <div class="ecm__list" *ngIf="!loading && !error">
       <button
@@ -34,14 +35,15 @@
         (click)="choose(c)"
       >
         <span class="ecm__name">{{ c.friendlyName }}</span>
-        <span class="ecm__hint" *ngIf="c.isDefault">(default)</span>
-        <span class="ecm__badge" [ngClass]="badgeClass(c.systemType)" *ngIf="c.systemType">{{ c.systemType }}</span>
-        <span class="ecm__spin" *ngIf="selecting === c.friendlyName" aria-hidden="true"></span>
-        <span
+        <span class="ecm__hint" *ngIf="c.isDefault">{{ 'ecm.default' | translate }}</span>
+        <span class="ecm__badge ecm__badge--{{ badgeCategory(c.systemType) }}" *ngIf="c.systemType">{{ c.systemType }}</span>
+        <span class="ecm__connecting" *ngIf="selecting === c.friendlyName">{{ 'ecm.connecting' | translate }}</span>
+        <mat-icon
           class="ecm__check"
+          svgIcon="check"
           *ngIf="c.friendlyName === connected && selecting !== c.friendlyName"
           aria-hidden="true"
-        >&#10003;</span>
+        ></mat-icon>
       </button>
     </div>
   </div>
