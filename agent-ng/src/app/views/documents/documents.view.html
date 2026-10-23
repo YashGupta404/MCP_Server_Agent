@@ -161,38 +161,40 @@
           {{ 'documents.empty.noContent' | translate }}
         </p>
 
-        <table class="docs__table" *ngIf="!loading && !error && paged.length">
-          <thead>
-            <tr>
-              <th *ngFor="let col of displayColumns; trackBy: trackByCol">{{ col }}</th>
-              <th class="docs__actionsCol"></th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr
-              *ngFor="let d of paged; trackBy: trackByDocId"
-              class="docs__row"
-              (click)="preview(d)"
-              [title]="'Open in the Hyland viewer (docId ' + d.docId + ')'"
-            >
-              <td
-                *ngFor="let col of displayColumns; trackBy: trackByCol"
-                [class.docs__nameCell]="isNameCol(col)"
-                [title]="cell(d, col)"
+        <div class="docs__tableWrap" *ngIf="!loading && !error && paged.length">
+          <table class="docs__table">
+            <thead>
+              <tr>
+                <th *ngFor="let col of displayColumns; trackBy: trackByCol">{{ col }}</th>
+                <th class="docs__actionsCol"></th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr
+                *ngFor="let d of paged; trackBy: trackByDocId"
+                class="docs__row"
+                (click)="preview(d)"
+                [title]="'Open in the Hyland viewer (docId ' + d.docId + ')'"
               >
-                <span class="docs__cellInner">
-                  <mat-icon class="docs__fileIcon docs__fileIcon--{{ fileKind(d) }}" [svgIcon]="fileIconName(d)" *ngIf="isNameCol(col)" aria-hidden="true"></mat-icon>
-                  <span class="docs__cellText">{{ cell(d, col) }}</span>
-                </span>
-              </td>
-              <td class="docs__actionsCell">
-                <button matIconButton class="docs__kebab" type="button" [matMenuTriggerFor]="rowMenu" (click)="menuDoc = d; $event.stopPropagation()" [attr.aria-label]="'documents.actions.label' | translate">
-                  <mat-icon svgIcon="more_vert"></mat-icon>
-                </button>
-              </td>
-            </tr>
-          </tbody>
-        </table>
+                <td
+                  *ngFor="let col of displayColumns; trackBy: trackByCol"
+                  [class.docs__nameCell]="isNameCol(col)"
+                  [title]="cell(d, col)"
+                >
+                  <span class="docs__cellInner">
+                    <mat-icon class="docs__fileIcon docs__fileIcon--{{ fileKind(d) }}" [svgIcon]="fileIconName(d)" *ngIf="isNameCol(col)" aria-hidden="true"></mat-icon>
+                    <span class="docs__cellText">{{ cell(d, col) }}</span>
+                  </span>
+                </td>
+                <td class="docs__actionsCell">
+                  <button matIconButton class="docs__kebab" type="button" [matMenuTriggerFor]="rowMenu" (click)="menuDoc = d; $event.stopPropagation()" [attr.aria-label]="'documents.actions.label' | translate">
+                    <mat-icon svgIcon="more_vert"></mat-icon>
+                  </button>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
 
         <div class="docs__pager" *ngIf="!loading && !error && filtered.length">
           <span class="docs__pagerInfo">{{ 'documents.pager.perPage' | translate }}</span>
@@ -372,7 +374,11 @@
         <div class="docs__metaTitle" *ngIf="!docTypeFieldsLoading && docTypeFields.length">{{ 'upload.meta.title' | translate }}</div>
 
         <ng-container *ngFor="let f of docTypeFields; trackBy: trackByDocTypeField">
-          <label class="docs__field docs__field--meta">
+          <label
+            class="docs__field docs__field--meta"
+            [class.docs__field--metaAuto]="!!docTypeFieldValues[f.id]"
+            [class.docs__field--metaPreview]="f.importable === false"
+          >
             <span class="docs__fieldLabel">{{ f.label || f.id }}<span *ngIf="f.importable === false"> · {{ 'upload.meta.preview' | translate }}</span></span>
             <input
               class="docs__select"

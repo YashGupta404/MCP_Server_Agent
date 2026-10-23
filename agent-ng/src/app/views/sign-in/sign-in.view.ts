@@ -1,4 +1,4 @@
-import { Component, OnInit } from '@angular/core';
+import { ChangeDetectorRef, Component, NgZone, OnInit } from '@angular/core';
 import { Router } from '@angular/router';
 import { TranslateService } from '@ngx-translate/core';
 import { AgentAuthService } from '../../services/auth/agent-auth.service';
@@ -19,6 +19,8 @@ export class SignInView implements OnInit {
     private readonly systems: SystemConfigService,
     private readonly router: Router,
     private readonly translate: TranslateService,
+    private readonly zone: NgZone,
+    private readonly cdr: ChangeDetectorRef,
   ) {}
 
   async ngOnInit(): Promise<void> {
@@ -42,6 +44,7 @@ export class SignInView implements OnInit {
       this.error = e?.message || this.translate.instant('signIn.error');
     } finally {
       this.busy = false;
+      this.zone.run(() => this.cdr.detectChanges());
     }
   }
 }

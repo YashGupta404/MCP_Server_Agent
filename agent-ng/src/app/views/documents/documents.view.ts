@@ -52,6 +52,10 @@ export class DocumentsView implements OnInit, OnDestroy {
   docTypeFields: DocTypeField[] = [];
   docTypeFieldsLoading = false;
   docTypeFieldsError = '';
+  // Metadata fields are keyed by type+record so selecting a type (or IDP auto-selecting one) reuses an
+  // already-loaded list instead of re-reading the solution config each time.
+  private docTypeFieldsCache: Record<string, DocTypeField[]> = {};
+  private docTypeFieldsInFlight: Record<string, Promise<DocTypeField[]>> = {};
   docTypeFieldValues: Record<string, string> = {};
   idpEnabled = Boolean(Settings.config?.idpEnabled);
   idpConnected = false;
@@ -97,16 +101,23 @@ export class DocumentsView implements OnInit, OnDestroy {
 
   async ngOnInit(): Promise<void> {
     void this.loadProfile();
-    try {
-      const { active } = await this.systems.list();
-      this.activeSystem = active;
-    } catch {
-      /* non-fatal: header just won't show the system name */
-    }
-    await this.reload();
     // React to navigation / tab switches so the record + doclist stay contextual.
     this.unsub = this.ctxSvc.onChange(() => this.zone.run(() => this.scheduleContextCheck()));
-    this.loadDocTypes();
+    // Resolve the record once up front so the document list and the upload doc-type list load in
+    // PARALLEL (like the old popup) instead of serially. Previously doc types only began loading after
+    // systems.list() AND the whole document load finished, so the dropdown sat on "Loading document
+    // types…" far longer than before.
+    const ctx = await this.resolveContext();
+    if (ctx?.businessObjectId && ctx?.businessObjectType) this.context = ctx;
+    // The active-system name only feeds the header, so don't let it block the record/doc-type loads.
+    void this.systems
+      .list()
+      .then(({ active }) => {
+        this.activeSystem = active;
+        this.cdr.detectChanges();
+      })
+      .catch(() => {});
+    await Promise.all([this.reload(), this.loadDocTypes()]);
     if (this.idpEnabled) this.loadIdpStatus();
   }
 
@@ -125,6 +136,12 @@ export class DocumentsView implements OnInit, OnDestroy {
   async signOut(): Promise<void> {
     await this.auth.clearSession();
     await this.router.navigate(['/sign-in']);
+  }
+
+  // fetch continuations land outside Angular's zone; re-enter + detect so backend-driven state
+  // updates render immediately instead of waiting for the next user interaction.
+  private tick(): void {
+    this.zone.run(() => this.cdr.detectChanges());
   }
 
   ngOnDestroy(): void {
@@ -179,6 +196,18 @@ export class DocumentsView implements OnInit, OnDestroy {
       this.columns = columns;
       this.page = 1;
       this.recompute();
+      // Prefetch the saved queries in the background (fire-and-forget), like the old popup did during
+      // context load, so the Query panel's dropdown is already populated when opened instead of sitting
+      // on "Loading…" while the slow get_solution_configurations call runs. A different record type
+      // drops the stale selection so the refetch reflects the new object's queries.
+      if (this.queriesBoType && this.queriesBoType !== ctx.businessObjectType) {
+        this.queriesLoaded = false;
+        this.queries = [];
+        this.selectedQueryId = '';
+        this.queryInputs = [];
+        this.queryActive = false;
+      }
+      void this.loadQueries();
     } catch (e: any) {
       this.error = e?.message || 'Could not load documents.';
     } finally {
@@ -360,6 +389,10 @@ export class DocumentsView implements OnInit, OnDestroy {
   queries: QueryInfo[] = [];
   queriesLoading = false;
   queriesLoaded = false;
+  // The business object the current query list was loaded (or is loading) for, plus the in-flight
+  // fetch, so the background prefetch in reload() and opening the panel never double round-trip.
+  private queriesBoType = '';
+  private queriesInFlight: Promise<void> | null = null;
   selectedQueryId = '';
   queryInputs: QueryInput[] = [];
   queryValues: Record<string, string> = {};
@@ -370,11 +403,15 @@ export class DocumentsView implements OnInit, OnDestroy {
   queryFieldsLoading = false;
   queryActive = false;
   private queryMetaCache: Record<string, { inputs: QueryInput[]; cols: string[] }> = {};
+  // In-flight metadata fetches, so the background prefetch and a user selecting a query reuse the
+  // same request instead of each firing a slow get_query_metadata round trip.
+  private queryMetaInFlight: Record<string, Promise<{ inputs: QueryInput[]; cols: string[] }>> = {};
 
   async toggleQuery(): Promise<void> {
     this.queryOpen = !this.queryOpen;
     if (this.queryOpen) {
-      if (!this.queriesLoaded) await this.loadQueries();
+      // Usually already prefetched by reload(); await the same in-flight promise if it isn't done yet.
+      await this.loadQueries();
       return;
     }
     // Closing the panel reverts to the full record list (and resets the query form).
@@ -388,19 +425,63 @@ export class DocumentsView implements OnInit, OnDestroy {
     }
   }
 
-  private async loadQueries(): Promise<void> {
+  // Loads the saved queries configured for the current business object, ONCE per object. Safe to call
+  // eagerly (background prefetch) and again when the panel opens: it returns the already-loaded result
+  // or the in-flight fetch instead of issuing a second slow get_solution_configurations round trip.
+  private loadQueries(): Promise<void> {
+    const boType = this.context?.businessObjectType || '';
+    if (this.queriesLoaded && this.queriesBoType === boType) return Promise.resolve();
+    if (this.queriesInFlight && this.queriesBoType === boType) return this.queriesInFlight;
+
+    this.queriesBoType = boType;
     this.queriesLoading = true;
     this.queryStatus = '';
     this.queryStatusError = false;
-    try {
-      this.queries = await this.docSvc.fetchQueries(this.context?.businessObjectType || '');
-      this.queriesLoaded = true;
-    } catch (e: any) {
-      this.queryStatus = e?.message || 'Could not load queries.';
-      this.queryStatusError = true;
-    } finally {
-      this.queriesLoading = false;
-    }
+    this.queriesInFlight = (async () => {
+      try {
+        this.queries = await this.docSvc.fetchQueries(boType);
+        this.queriesLoaded = true;
+        // Warm only the DEFAULT (or first) query's fields. Prefetching every query fired a burst of
+        // get_query_metadata calls that queued on the same MCP→UCEB→OnBase pipeline a user search uses,
+        // making the search slow. Other queries load on selection (then cached).
+        const primary = this.queries.find((q) => (q as any).default) ?? this.queries[0];
+        if (primary?.id) void this.ensureQueryMeta(primary.id).catch(() => {});
+      } catch (e: any) {
+        this.queryStatus = e?.message || 'Could not load queries.';
+        this.queryStatusError = true;
+      } finally {
+        this.queriesInFlight = null;
+        // The fetch resolves outside Angular's zone — force a tick so the spinner clears.
+        this.zone.run(() => {
+          this.queriesLoading = false;
+          this.cdr.detectChanges();
+        });
+      }
+    })();
+    return this.queriesInFlight;
+  }
+
+  // Returns a query's search-field metadata, loading it once and reusing any in-flight fetch.
+  private ensureQueryMeta(qid: string): Promise<{ inputs: QueryInput[]; cols: string[] }> {
+    const cached = this.queryMetaCache[qid];
+    if (cached) return Promise.resolve(cached);
+    const inFlight = this.queryMetaInFlight[qid];
+    if (inFlight) return inFlight;
+    const p = this.docSvc
+      .fetchQueryMetadata(qid)
+      .then((meta) => {
+        const entry = {
+          inputs: meta.inputs || [],
+          cols: (meta.resultColumns || []).map((c) => c.name || '').filter(Boolean),
+        };
+        this.queryMetaCache[qid] = entry;
+        return entry;
+      })
+      .finally(() => {
+        delete this.queryMetaInFlight[qid];
+      });
+    this.queryMetaInFlight[qid] = p;
+    return p;
   }
 
   async onQueryChange(): Promise<void> {
@@ -411,17 +492,13 @@ export class DocumentsView implements OnInit, OnDestroy {
     this.queryStatusError = false;
     const qid = this.selectedQueryId;
     if (!qid) return;
-    this.queryFieldsLoading = true;
+    // Instant when the field metadata was already prefetched in the background by loadQueries().
+    const ready = this.queryMetaCache[qid];
+    this.queryFieldsLoading = !ready;
     try {
-      let cached = this.queryMetaCache[qid];
-      if (!cached) {
-        const meta = await this.docSvc.fetchQueryMetadata(qid);
-        cached = {
-          inputs: meta.inputs || [],
-          cols: (meta.resultColumns || []).map((c) => c.name || '').filter(Boolean),
-        };
-        this.queryMetaCache[qid] = cached;
-      }
+      const cached = ready ?? (await this.ensureQueryMeta(qid));
+      // The user may have switched queries while this was loading — ignore a stale result.
+      if (this.selectedQueryId !== qid) return;
       this.queryInputs = cached.inputs;
       for (const inp of this.queryInputs) {
         this.queryOps[inp.id] = this.operatorsFor(inp)[0];
@@ -431,7 +508,11 @@ export class DocumentsView implements OnInit, OnDestroy {
       this.queryStatus = e?.message || 'Could not load query fields.';
       this.queryStatusError = true;
     } finally {
-      this.queryFieldsLoading = false;
+      // The metadata fetch resolves outside Angular's zone — force a tick so the fields render.
+      this.zone.run(() => {
+        this.queryFieldsLoading = false;
+        this.cdr.detectChanges();
+      });
     }
   }
 
@@ -506,7 +587,12 @@ export class DocumentsView implements OnInit, OnDestroy {
       this.queryStatus = e?.message || 'Query failed.';
       this.queryStatusError = true;
     } finally {
-      this.querySearching = false;
+      // The query resolves outside Angular's zone — force a tick so results render and the
+      // "Searching…" state clears without needing a manual click in the panel.
+      this.zone.run(() => {
+        this.querySearching = false;
+        this.cdr.detectChanges();
+      });
     }
   }
 
@@ -569,6 +655,7 @@ export class DocumentsView implements OnInit, OnDestroy {
     } finally {
       this.chatSending = false;
       this.scrollChat();
+      this.tick();
     }
   }
 
@@ -676,6 +763,8 @@ export class DocumentsView implements OnInit, OnDestroy {
       this.viewerLoading = false;
       this.viewerFallback = true;
       this.viewerError = e?.message || 'Could not open the viewer for this document.';
+    } finally {
+      this.tick();
     }
   }
 
@@ -769,6 +858,8 @@ export class DocumentsView implements OnInit, OnDestroy {
       this.showActionToast('success', this.translate.instant('actions.downloaded', { name }));
     } catch (e: any) {
       this.showActionToast('error', e?.message || this.translate.instant('actions.downloadError'));
+    } finally {
+      this.tick();
     }
   }
 
@@ -810,6 +901,7 @@ export class DocumentsView implements OnInit, OnDestroy {
       this.deleteError = e?.message || this.translate.instant('actions.deleteError');
     } finally {
       this.deleting = false;
+      this.tick();
     }
   }
 
@@ -836,11 +928,54 @@ export class DocumentsView implements OnInit, OnDestroy {
     this.docTypesError = '';
     try {
       this.docTypes = await this.docSvc.listDocTypes(this.context?.businessObjectType || '');
+      // With a record in context the list is the few CONFIGURED types, so warm each one's metadata
+      // fields in the background — selecting a type (or IDP auto-selecting after classify) is then
+      // instant instead of waiting on a per-type solution-config read.
+      if (this.context?.businessObjectType) {
+        for (const t of this.docTypes) {
+          if (t) void this.ensureDocTypeFields(t).catch(() => {});
+        }
+      }
     } catch (e: any) {
       this.docTypesError = e?.message || 'Could not load document types.';
     } finally {
       this.docTypesLoading = false;
+      this.tick();
     }
+  }
+
+  // Cache key for a type's metadata fields. Includes the business object (and, for Workday, the record
+  // id, since its default attributes are per-record) so a different record never reuses stale fields.
+  private docTypeFieldsKey(docType: string): string {
+    const workday = this.isWorkdayRecord();
+    const boType = this.context?.businessObjectType || '';
+    const boId = this.context?.businessObjectId || '';
+    return `${workday ? 'w' : 'c'}|${boType}|${workday ? boId : ''}|${docType}`;
+  }
+
+  // Loads a type's metadata fields once, reusing any cached result or in-flight fetch.
+  private ensureDocTypeFields(docType: string): Promise<DocTypeField[]> {
+    const key = this.docTypeFieldsKey(docType);
+    const cached = this.docTypeFieldsCache[key];
+    if (cached) return Promise.resolve(cached);
+    const inFlight = this.docTypeFieldsInFlight[key];
+    if (inFlight) return inFlight;
+    const p = this.docSvc
+      .fetchDocTypeFields({
+        docType,
+        businessObjectType: this.context?.businessObjectType || '',
+        businessObjectId: this.context?.businessObjectId || '',
+        workday: this.isWorkdayRecord(),
+      })
+      .then((fields) => {
+        this.docTypeFieldsCache[key] = fields;
+        return fields;
+      })
+      .finally(() => {
+        delete this.docTypeFieldsInFlight[key];
+      });
+    this.docTypeFieldsInFlight[key] = p;
+    return p;
   }
 
   async loadIdpStatus(): Promise<void> {
@@ -851,6 +986,9 @@ export class DocumentsView implements OnInit, OnDestroy {
     } catch {
       this.idpConnected = false;
       this.idpPublicHost = false;
+    } finally {
+      // Resolves outside Angular's zone — force a tick so the Auto-classify button enables.
+      this.zone.run(() => this.cdr.detectChanges());
     }
   }
 
@@ -863,6 +1001,7 @@ export class DocumentsView implements OnInit, OnDestroy {
   }
 
   async onDocTypeChange(): Promise<void> {
+    try {
     const newType = this.selectedDocType.trim();
     const cls = this.selectedUploadName ? this.fileClassifications[this.selectedUploadName] : null;
     const selectedFile = this.selectedUploadName ? this.uploadFiles.find((f) => f.name === this.selectedUploadName) : null;
@@ -933,6 +1072,9 @@ export class DocumentsView implements OnInit, OnDestroy {
       this.uploadStatus = `${file.name} → ${newType}${cls.edited ? ' (edited)' : ''} · metadata fill failed (${e?.message || 'unknown error'})`;
       this.uploadError = false;
     }
+    } finally {
+      this.tick();
+    }
   }
 
   private isWorkdayRecord(): boolean {
@@ -982,15 +1124,15 @@ export class DocumentsView implements OnInit, OnDestroy {
     this.docTypeFieldsError = '';
     if (!this.selectedDocType) return;
 
-    this.docTypeFieldsLoading = true;
+    const docType = this.selectedDocType;
+    // No spinner when the fields were already prefetched/cached — they render instantly.
+    const cachedNow = this.docTypeFieldsCache[this.docTypeFieldsKey(docType)];
+    this.docTypeFieldsLoading = !cachedNow;
     try {
-      const workday = this.isWorkdayRecord();
-      this.docTypeFields = await this.docSvc.fetchDocTypeFields({
-        docType: this.selectedDocType,
-        businessObjectType: this.context?.businessObjectType || '',
-        businessObjectId: this.context?.businessObjectId || '',
-        workday,
-      });
+      const fields = await this.ensureDocTypeFields(docType);
+      // The user may have switched type/file while this was loading — ignore a stale result.
+      if (this.selectedDocType !== docType) return;
+      this.docTypeFields = fields;
       if (this.selectedUploadName && this.fileClassifications[this.selectedUploadName]) {
         const cls = this.fileClassifications[this.selectedUploadName];
         const seedType = cls?.docType || this.selectedDocType;
@@ -1009,6 +1151,7 @@ export class DocumentsView implements OnInit, OnDestroy {
       this.docTypeFieldsError = e?.message || 'Could not load metadata fields.';
     } finally {
       this.docTypeFieldsLoading = false;
+      this.tick();
     }
   }
 
@@ -1084,6 +1227,7 @@ export class DocumentsView implements OnInit, OnDestroy {
       this.uploadStatus = `${file.name} → ${this.selectedDocType}${tag} · ${filled} field(s) filled — review, then Upload.`;
       this.uploadError = false;
     }
+    this.tick();
   }
 
   async autoClassify(): Promise<void> {
@@ -1099,7 +1243,6 @@ export class DocumentsView implements OnInit, OnDestroy {
     }
 
     this.idpBusy = true;
-    this.uploading = true;
     const boType = this.context?.businessObjectType || '';
     this.uploadStatus = `Classifying ${this.uploadFiles.length} file(s) with IDP…`;
     this.uploadError = false;
@@ -1134,14 +1277,19 @@ export class DocumentsView implements OnInit, OnDestroy {
       this.uploadStatus = `Auto-classify failed: ${e?.message || 'unknown error'}`;
       this.uploadError = true;
     } finally {
-      this.idpBusy = false;
-      this.uploading = false;
+      // The IDP classify resolves outside Angular's zone — force a tick so the badges, status
+      // and cleared spinner render without needing a manual click in the panel.
+      this.zone.run(() => {
+        this.idpBusy = false;
+        this.cdr.detectChanges();
+      });
     }
   }
 
   get canUpload(): boolean {
     return (
       !this.uploading &&
+      !this.idpBusy &&
       this.uploadFiles.length > 0 &&
       (!!this.selectedDocType || this.uploadFiles.some((file) => !!this.fileClassifications[file.name]?.docType)) &&
       !!this.context?.businessObjectId
@@ -1257,6 +1405,7 @@ export class DocumentsView implements OnInit, OnDestroy {
       this.uploadError = true;
     } finally {
       this.uploading = false;
+      this.tick();
     }
   }
 }

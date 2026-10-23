@@ -72,6 +72,7 @@ export class EcmPickerView implements OnInit {
       this.error = e?.message || this.translate.instant('ecm.connectError');
     } finally {
       this.selecting = '';
+      this.zone.run(() => this.cdr.detectChanges());
     }
   }
 

@@ -395,15 +395,17 @@ static class McpJsonRpc
     }
 
     // UCEB surfaces a slow/unhealthy CFS/OnBase broker as a 503 "still processing"/"Retry after", a 408
-    // "Operation timed out", or a 404 "A service is currently unavailable" in the tool's text. All are
-    // transient backend conditions worth retrying; real errors (bad query, denied, not configured) are not.
+    // "Operation timed out", a 404/503 "A service is currently unavailable", or a 503
+    // "Service Unavailable: An unexpected error occurred" in the tool's text. All are transient backend
+    // conditions worth retrying; real errors (bad query, denied, not configured) are not.
     private static bool IsTransientBrokerStall(string text) =>
         !string.IsNullOrEmpty(text) &&
         (text.Contains("still processing", StringComparison.OrdinalIgnoreCase) ||
          text.Contains("Retry after", StringComparison.OrdinalIgnoreCase) ||
          text.Contains("Request timeout", StringComparison.OrdinalIgnoreCase) ||
          text.Contains("Operation timed out", StringComparison.OrdinalIgnoreCase) ||
-         text.Contains("currently unavailable", StringComparison.OrdinalIgnoreCase));
+         text.Contains("currently unavailable", StringComparison.OrdinalIgnoreCase) ||
+         text.Contains("service unavailable", StringComparison.OrdinalIgnoreCase));
 
     private static async Task<(string Text, bool IsError)> CallToolOnceAsync(
         IHttpClientFactory httpFactory, McpOptions mcp, string toolName, object arguments,

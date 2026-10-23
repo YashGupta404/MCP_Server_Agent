@@ -52,7 +52,8 @@
       "match": "Match",
       "enter": "Enter",
       "run": "Run query",
-      "searching": "Searching\u2026"
+      "searching": "Searching\u2026",
+      "fieldsLoading": "Loading search fields\u2026"
     },
     "loading": "Loading documents\u2026",
     "empty": {
