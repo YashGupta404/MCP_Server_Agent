@@ -1,0 +1,47 @@
+{
+  "id": "6561d313-f766-4463-9063-a8d6ad69de0f",
+  "timestamp": "2026-11-16T11:04:50.481461+00:00",
+  "results": [
+    {
+      "objectKey": "contents/06a2be36-c97a-4edc-864a-6741ba1643ab/cff7e43c-9de7-46af-8df6-b412e0f6ce51/cff7e43c-9de7-46af-8df6-b412e0f6ce51",
+      "textMetadata": null,
+      "textSummary": {
+        "isSuccess": true,
+        "result": "Acme Industrial Supply Co. issued invoice INV-2026-004821 to Globex Corporation dated November 10, 2026, with a due date of December 10, 2026. The invoice totals USD 2,322.00, comprising a subtotal of $2,150.00 plus 8% tax of $172.00.",
+        "error": null
+      },
+      "textClassification": {
+        "isSuccess": true,
+        "result": "invoice",
+        "error": null
+      },
+      "namedEntityText": {
+        "isSuccess": true,
+        "result": {
+          "organizations": [
+            "Acme Industrial Supply Co.",
+            "Globex Corporation"
+          ],
+          "dates_times": [
+            "2026-11-10",
+            "2026-12-10"
+          ],
+          "monetary_values": [
+            "2150.00",
+            "172.00",
+            "USD 2322.00"
+          ],
+          "percentages": [
+            "8%"
+          ],
+          "ids_identifiers": [
+            "INV-2026-004821"
+          ]
+        },
+        "error": null
+      }
+    }
+  ],
+  "status": "SUCCESS",
+  "inProgress": false
+}

@@ -65,7 +65,7 @@
 [CmdletBinding()]
 param(
     [Parameter(Mandatory = $true)]
-    [ValidateSet('salesforce', 'salesforce-staging', 'workday', 'workday-staging')]
+    [ValidateSet('salesforce', 'salesforce-staging', 'servicenow', 'workday', 'workday-staging', 'workday-prod')]
     [string]$Lob,
 
     [switch]$SetSecret,
@@ -125,6 +125,17 @@ $LobConfig = @{
         UcebBaseUrl = 'https://api.uceb.app-intel.staging.app.hyland.com'
         BasePath    = 'bow'
     }
+    # PROD Hyland-for-Workday confidential client (Appintel PROD env). Points at the deployed PROD UCEB
+    # (https://api.uceb.app-intel.app.hyland.com) which does the CFS token exchange internally. Secret lives
+    # ONLY in MCP user-secrets (Lob:workday-prod:ClientSecret) - set it with -SetSecret. Fill in the real
+    # ClientId below before first use.
+    'workday-prod' = @{
+        ClientId    = 'wsc-1490eba2-085a-4049-b225-ce0c2ede5cde'
+        Scopes      = 'openid profile offline_access uceb environment_authorization hxp.nucleus.account hxp wdx'
+        Iam         = 'prod'
+        UcebBaseUrl = 'https://api.uceb.app-intel.app.hyland.com'
+        BasePath    = 'bow'
+    }
     salesforce = @{
         ClientId    = 'wsc-dc7e0e46-06d2-4166-874f-149dc8614012'
         Scopes      = 'openid profile offline_access uceb environment_authorization hxp.nucleus.account hxp'
@@ -139,6 +150,20 @@ $LobConfig = @{
         Scopes      = 'openid profile offline_access uceb environment_authorization hxp.nucleus.account hxp'
         Iam         = 'staging'
         UcebBaseUrl = 'https://api.uceb.app-intel.staging.app.hyland.com'
+        BasePath    = 'api'
+    }
+    # ServiceNow (hfsn) confidential client (Appintel-Staging Test Environment, app "Hyland for ServiceNow").
+    # Points the MCP at the LOCAL UCEB (localhost:5000) which has the hfsn LOB onboarded (lookup/default resource
+    # files) and is itself pointed at staging IAM/content via its OWN user-secrets. CIC-native content
+    # (BasePath=api; MCP appsettings SystemFriendlyName=cic). Same Salesforce scope set (NO wdx).
+    # ClientFromSecrets: the client id + secret come DIRECTLY from the MCP user-secrets (Auth:ClientId /
+    # Auth:ClientSecret) - set them yourself; this script does NOT manage them and -SetSecret is not used.
+    'servicenow' = @{
+        ClientId          = ''
+        ClientFromSecrets = $true
+        Scopes      = 'openid profile offline_access uceb environment_authorization hxp.nucleus.account hxp'
+        Iam         = 'staging'
+        UcebBaseUrl = 'http://localhost:5000'
         BasePath    = 'api'
     }
 }
@@ -185,19 +210,14 @@ function Set-McpIamEndpoints([string]$iam) {
         Write-Host "MCP appsettings not found at $McpAppSettings - skipping endpoint flip." -ForegroundColor DarkYellow
         return
     }
+    # Env segment inserted before 'app.hyland.com': dev -> 'dev.', staging -> 'staging.', prod -> '' (none).
+    # Regex-normalize whatever env the file is currently on to the target, so flips are bidirectional
+    # (including to/from prod) instead of the old one-way dev<->staging string swaps.
+    $seg = switch ($iam) { 'prod' { '' } 'staging' { 'staging.' } default { 'dev.' } }
     $txt = Get-Content $McpAppSettings -Raw
-    if ($iam -eq 'staging') {
-        $txt = $txt.Replace('https://auth.dev.app.hyland.com/idp', 'https://auth.staging.app.hyland.com/idp')
-        $txt = $txt.Replace('https://api.platform.dev.app.hyland.com', 'https://api.platform.staging.app.hyland.com')
-        $txt = $txt.Replace('"content.dev.app.hyland.com"', '"content.staging.app.hyland.com"')
-        $txt = $txt.Replace('https://bravo.cic-viewer.sandbox.app.hyland.com', 'https://cic-viewer.staging.app.hyland.com')
-    }
-    else {
-        $txt = $txt.Replace('https://auth.staging.app.hyland.com/idp', 'https://auth.dev.app.hyland.com/idp')
-        $txt = $txt.Replace('https://api.platform.staging.app.hyland.com', 'https://api.platform.dev.app.hyland.com')
-        $txt = $txt.Replace('"content.staging.app.hyland.com"', '"content.dev.app.hyland.com"')
-        $txt = $txt.Replace('https://cic-viewer.staging.app.hyland.com', 'https://bravo.cic-viewer.sandbox.app.hyland.com')
-    }
+    $txt = [regex]::Replace($txt, 'auth\.(?:dev\.|staging\.)?app\.hyland\.com/idp', "auth.${seg}app.hyland.com/idp")
+    $txt = [regex]::Replace($txt, 'api\.platform\.(?:dev\.|staging\.)?app\.hyland\.com', "api.platform.${seg}app.hyland.com")
+    $txt = [regex]::Replace($txt, '"content\.(?:dev\.|staging\.)?app\.hyland\.com"', "`"content.${seg}app.hyland.com`"")
     Set-Content -Path $McpAppSettings -Value $txt -NoNewline -Encoding UTF8
     Write-Host "MCP appsettings IAM endpoints -> $iam" -ForegroundColor DarkGray
 }
@@ -226,6 +246,23 @@ function Set-McpBusinessObjectBasePath([string]$basePath) {
 }
 
 $secretKey = "Lob:$Lob`:ClientSecret"
+
+if ($config.ClientFromSecrets) {
+    # ServiceNow (and any ClientFromSecrets LOB): the confidential client id + secret are set DIRECTLY in the
+    # MCP user-secrets as Auth:ClientId / Auth:ClientSecret (not managed by this script, not typed via
+    # -SetSecret). This script only flips the IAM endpoints/scopes/Uceb:BaseUrl. Validate they're present.
+    if ([string]::IsNullOrWhiteSpace($secrets['Auth:ClientId']) -or [string]::IsNullOrWhiteSpace($secrets['Auth:ClientSecret'])) {
+        throw @"
+No Auth:ClientId / Auth:ClientSecret in the MCP user-secrets for '$Lob'. Set them directly, then re-run:
+  dotnet user-secrets set "Auth:ClientId" "<hfsn client id>" --project "$McpProject"
+  dotnet user-secrets set "Auth:ClientSecret" "<hfsn client secret>" --project "$McpProject"
+"@
+    }
+    $config.ClientId = $secrets['Auth:ClientId']   # for the summary below
+    $secrets['Auth:Scopes'] = $config.Scopes       # user-secrets override appsettings.json
+    Save-Secrets
+}
+else {
 
 # One-time convenience: if this LOB's per-LOB secret slot is empty but the currently-active
 # Auth:ClientSecret already belongs to this LOB (same ClientId), migrate it into the per-LOB slot so
@@ -266,6 +303,8 @@ $secrets['Auth:ClientId'] = $config.ClientId
 $secrets['Auth:ClientSecret'] = $secrets[$secretKey]
 $secrets['Auth:Scopes'] = $config.Scopes   # user-secrets override appsettings.json
 Save-Secrets
+
+}
 
 # Flip the MCP appsettings IAM endpoints + Uceb:BaseUrl to this LOB's environment (dev/staging, local/deployed).
 Set-McpIamEndpoints $config.Iam

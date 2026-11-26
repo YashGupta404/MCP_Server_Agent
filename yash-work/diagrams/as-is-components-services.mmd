@@ -1,0 +1,61 @@
+flowchart LR
+  subgraph UI["AS-IS UI: 3 page components, every control lives inside them (no child components)"]
+    direction TB
+    subgraph SIV["SignInView"]
+      SI1["Continue button<br/>«matButton filled»"]
+    end
+    subgraph EPV["EcmPickerView (core part)"]
+      EP1["Header + close<br/>«matIconButton»"]
+      EP2["System list rows<br/>«native button · mat-icon · type badge»"]
+    end
+    subgraph DV["DocumentsView (1655 lines, 13 deps)"]
+      D1["Header: theme toggle · avatar · close<br/>«matIconButton · matTooltip»"]
+      D1m["Profile menu<br/>«mat-menu .satori»"]
+      D2["Connected-system card<br/>«native buttons · mat-icon»"]
+      D3["Search + documents table + pager<br/>«native input · native table · native select»"]
+      D4["Query panel<br/>«native select · native input · mat-spinner»"]
+      D5["Row menu + delete dialog + toast<br/>«mat-menu · MatDialog · MatSnackBar»"]
+      D6["Viewer overlay<br/>«iframe · DomSanitizer · mat-spinner»"]
+      D7["Talk with agent tab<br/>«native input · chips · [innerHTML] markdown»"]
+      D8["Upload card: drop zone · doctype · metadata · IDP · Workday worker<br/>«native select/inputs · mat-spinner · matTooltip»"]
+    end
+  end
+
+  subgraph SVC["AS-IS services (root singletons, Promise-based, untyped BFF payloads)"]
+    direction TB
+    AUTH["AgentAuthService<br/>login · getSession · clearSession"]
+    SYS["SystemConfigService<br/>list · setActive · restoreRemembered"]
+    CTX["ContextDetectorService<br/>getActiveContext · onChange · reprobe · captureActivePage"]
+    DOC["DocumentService (15 endpoints)<br/>listForContext · listDocTypes · fetchDocTypeFields · upload · capture<br/>fetchQueries · fetchQueryMetadata · executeQuery<br/>openInViewer · downloadDocument · deleteDocument<br/>fetchIdpStatus · classifyWithIdp · extractWithIdp · fetchMe · resolveWorker"]
+    CHAT["ChatService<br/>send"]
+    THEME["ThemeService<br/>init · toggle"]
+    BFFAPI["BffApiService<br/>get · post · getRaw · getProfile<br/>(fetch + X-BFF-Session)"]
+  end
+
+  EXT[("BFF :5010<br/>-> MCP/UCEB · KE · IDP · Agent Builder")]
+  TAB[("Active LOB tab<br/>content script")]
+
+  SI1 -->|"login, getSession"| AUTH
+  SI1 -->|"restoreRemembered"| SYS
+  EP2 -->|"list, setActive"| SYS
+  EP1 -->|"getProfile"| BFFAPI
+  D1 -->|"toggle"| THEME
+  D1m -->|"getProfile"| BFFAPI
+  D1m -->|"clearSession"| AUTH
+  D2 -->|"getActiveContext, onChange"| CTX
+  D2 -->|"active system"| SYS
+  D3 -->|"listForContext, fetchMe"| DOC
+  D4 -->|"fetchQueries, fetchQueryMetadata, executeQuery"| DOC
+  D5 -->|"downloadDocument, deleteDocument"| DOC
+  D6 -->|"openInViewer"| DOC
+  D7 -->|"send"| CHAT
+  D7 -->|"listForContext"| DOC
+  D8 -->|"listDocTypes, fetchDocTypeFields, upload, capture,<br/>fetchIdpStatus, classifyWithIdp, extractWithIdp, resolveWorker"| DOC
+
+  SYS --> BFFAPI
+  DOC --> BFFAPI
+  CHAT --> BFFAPI
+  BFFAPI --> AUTH
+  AUTH -->|"/auth/exchange"| EXT
+  BFFAPI -->|"/api/*"| EXT
+  CTX -->|"chrome.scripting"| TAB

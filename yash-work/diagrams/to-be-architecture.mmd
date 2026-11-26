@@ -1,0 +1,95 @@
+flowchart TB
+  subgraph L1["1 · Shell + routing"]
+    direction LR
+    APP["AppComponent"] --> SHELL["AppShellComponent «smart»<br/>header · theme · profile"]
+    ROUTER["Router<br/>authGuard · systemSelectedGuard · featureGuard (canMatch)"]
+  end
+
+  subgraph L2["2 · Smart (container) pages: inject facades, hold state, no styling logic"]
+    direction LR
+    P1["SignInPage"]
+    P2["SystemPickerPage"]
+    P3["DocumentsPage"]
+    P4["ChatPage"]
+    P5["AutoCapturePage «flag: autoCapture»"]
+  end
+
+  subgraph L3["3 · Dumb (presentational) components: @Input models · @Output events · OnPush"]
+    direction LR
+    C1["AppHeader"]
+    C2["SystemList · SystemListItem"]
+    C3["ConnectedSystemCard"]
+    C4["DocumentTable · DocumentRowMenu"]
+    C5["QueryPanel"]
+    C6["UploadCard · FileDropZone · DocTypeMetadataForm"]
+    C7["ChatLog · ChatComposer"]
+    C8["DocumentViewerOverlay"]
+    C9["ConfirmDialog"]
+    C10["WorkerPicker «flag: workday»"]
+  end
+
+  subgraph L4["4 · Shared UI kit (reusable controls + directives)"]
+    direction LR
+    K1["hyl-dropdown<br/>(Satori select)"]
+    K2["hyl-typeahead<br/>(mat-autocomplete .satori)"]
+    K3["hyl-skeleton<br/>(ghost rows / cards)"]
+    K4["*hylFeature<br/>(flag directive)"]
+    K5["hylFileDrop · hylFocusReturn<br/>(directives)"]
+    K6["Satori icons · translate pipe"]
+  end
+
+  subgraph L5["5 · Cross-cutting"]
+    direction LR
+    X1["ThemeService<br/>MD3 tokens · light/dark · RTL"]
+    X2["I18n<br/>ngx-translate · en.json"]
+    X3["A11y<br/>WCAG 2.2 AA · aria · focus"]
+    X4["FeatureFlagService<br/>central evaluation"]
+    X5["ErrorHandler · Logger · Notification"]
+    X6["Models<br/>Document · RecordContext · DocType · Query · Classification · ChatMessage"]
+  end
+
+  subgraph L6["6 · Facade layer (interfaces / InjectionTokens; components only see these + models)"]
+    direction LR
+    F1["AuthFacade"]
+    F2["SystemFacade"]
+    F3["RecordContextFacade (store)"]
+    F4["DocumentFacade<br/>list · query · view · download · delete"]
+    F5["CaptureFacade<br/>docTypes · fields · upload"]
+    F6["ClassificationFacade<br/>classify · extract"]
+    F7["AgentChatFacade"]
+  end
+
+  subgraph L7["7 · Provider layer (one implementation per tool, chosen by config / flags)"]
+    direction LR
+    V1["UcebBffProvider<br/>documents · capture · systems"]
+    V2["IdpProvider"]
+    V3["KeProvider<br/>Data Curation · Context"]
+    V4["AgentBuilderProvider"]
+    V5["OtherAgentProvider"]
+    V6["ChromeTabContextProvider<br/>content script · page capture"]
+    V7["WorkdayWorkerProvider"]
+    V8["IamPkceAuthProvider"]
+  end
+
+  subgraph L8["8 · Infrastructure"]
+    direction LR
+    I1["HttpClient + interceptors<br/>session · errors · retry"]
+    I2["Chrome API adapter<br/>identity · storage · scripting"]
+    I3["Runtime config<br/>configs.json · flags"]
+  end
+
+  BFF[("BFF")]
+
+  L1 --> L2
+  L2 -->|"inputs / outputs"| L3
+  L3 --> L4
+  L2 -->|"inject"| L6
+  L6 -->|"implemented by (DI providers)"| L7
+  L7 --> L8
+  I1 --> BFF
+  X4 -.->|"route guard"| ROUTER
+  X4 -.->|"*hylFeature"| K4
+  X4 -.->|"provider selection"| L7
+  X4 --> I3
+  L3 -.-> L5
+  L6 -.-> X6

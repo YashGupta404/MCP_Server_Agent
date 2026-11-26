@@ -1,0 +1,14 @@
+ServiceNow Change Request
+
+Number: CHG0012345
+Short Description: Upgrade database cluster to v14
+Priority: 2 - High
+Change State: Assess
+Assigned To: Yash Gupta
+Opened By: Yash Gupta
+Planned Start Date: 2026-11-20
+Planned End Date: 2026-11-21
+
+Description:
+Rolling upgrade of the production database cluster from v12 to v14, including a
+rollback plan and validation steps. Requires CAB approval before implementation.

@@ -1,0 +1,277 @@
+{
+  "configurations": {
+    "operationConfig": {
+      "query": {
+        "pageSize": 10,
+        "maxResults": null
+      },
+      "capture": {
+        "fileSizeLimit": 2000,
+        "fileTypesAllowed": [
+          "bmp",
+          "jpg",
+          "jpeg",
+          "png",
+          "pdf",
+          "tiff",
+          "docx",
+          "pptx",
+          "xlsx",
+          "txt",
+          "json",
+          "mp4",
+          "mp3"
+        ]
+      },
+      "rendition": null,
+      "viewer": {
+        "baseUrl": ""
+      }
+    },
+    "businessObjectConfig": {
+      "contextParams": {
+        "boContext": {
+          "boProp": "number",
+          "ecmProp": "hfsn_recordNumber",
+          "ecmPropId": "hfsn_recordNumber"
+        },
+        "boUser": {
+          "boProp": "opened_by",
+          "ecmProp": "hfsn_recordOwner",
+          "ecmPropId": "hfsn_recordOwner"
+        }
+      },
+      "additionalConfig": [
+        {
+          "busObject": "change_request",
+          "ecmContentTypeName": "change-request-type",
+          "ecmContentTypeId": "change-request-type",
+          "ecmContentTypeGroupId": null,
+          "contextParams": [],
+          "ecmMetadataFieldLabels": [
+            {
+              "ecmColumnName": "hfsn_documentName",
+              "ecmColumnId": "hfsn_documentName",
+              "localeStrings": [
+                {
+                  "culture": "en_US",
+                  "name": "Document Name",
+                  "description": "Default label for hfsn_documentName"
+                }
+              ]
+            },
+            {
+              "ecmColumnName": "hfsn_shortDescription",
+              "ecmColumnId": "hfsn_shortDescription",
+              "localeStrings": [
+                {
+                  "culture": "en_US",
+                  "name": "Short Description",
+                  "description": "Default label for hfsn_shortDescription"
+                }
+              ]
+            },
+            {
+              "ecmColumnName": "hfsn_changeState",
+              "ecmColumnId": "hfsn_changeState",
+              "localeStrings": [
+                {
+                  "culture": "en_US",
+                  "name": "Change State",
+                  "description": "Default label for hfsn_changeState"
+                }
+              ]
+            },
+            {
+              "ecmColumnName": "hfsn_priority",
+              "ecmColumnId": "hfsn_priority",
+              "localeStrings": [
+                {
+                  "culture": "en_US",
+                  "name": "Priority",
+                  "description": "Default label for hfsn_priority"
+                }
+              ]
+            }
+          ],
+          "displayColumns": {
+            "ecmColumnSets": [
+              {
+                "formFactorId": "desktop",
+                "columns": [
+                  "hfsn_documentName",
+                  "hfsn_shortDescription",
+                  "hfsn_changeState",
+                  "hfsn_priority"
+                ]
+              }
+            ],
+            "defaultFormFactor": "desktop"
+          },
+          "metadataFieldImportMappings": [
+            {
+              "ecmFieldName": "hfsn_documentName",
+              "inputSource": "4",
+              "value": {
+                "value": "File Name",
+                "type": "String",
+                "format": ""
+              }
+            },
+            {
+              "ecmFieldName": "hfsn_shortDescription",
+              "inputSource": "6",
+              "value": {
+                "value": "",
+                "type": "String",
+                "format": ""
+              }
+            },
+            {
+              "ecmFieldName": "hfsn_changeState",
+              "inputSource": "6",
+              "value": {
+                "value": "",
+                "type": "String",
+                "format": ""
+              }
+            },
+            {
+              "ecmFieldName": "hfsn_priority",
+              "inputSource": "6",
+              "value": {
+                "value": "",
+                "type": "String",
+                "format": ""
+              }
+            }
+          ],
+          "defaultListQuery": {
+            "name": "change-request-type",
+            "id": "change-request-type",
+            "type": "ContentType",
+            "default": true
+          }
+        }
+      ],
+      "queryConfig": [
+        {
+          "busObject": "change_request",
+          "queries": [
+            {
+              "name": "change-request-type",
+              "id": "change-request-type",
+              "label": null,
+              "description": null,
+              "type": "ContentType",
+              "default": true,
+              "filterClauses": [
+                {
+                  "ecmFieldName": "hfsn_recordNumber",
+                  "ecmFieldId": "hfsn_recordNumber",
+                  "inputSource": "3",
+                  "value": { "value": "", "type": "String", "format": "" },
+                  "editable": true,
+                  "operator": "EqualsCaseInsensitive"
+                },
+                {
+                  "ecmFieldName": "hfsn_recordOwner",
+                  "ecmFieldId": "hfsn_recordOwner",
+                  "inputSource": "3",
+                  "value": { "value": "", "type": "String", "format": "" },
+                  "editable": true,
+                  "operator": "EqualsCaseInsensitive"
+                },
+                {
+                  "ecmFieldName": "hfsn_documentName",
+                  "ecmFieldId": "hfsn_documentName",
+                  "inputSource": "3",
+                  "value": { "value": "", "type": "String", "format": "" },
+                  "editable": true,
+                  "operator": "EqualsCaseInsensitive"
+                },
+                {
+                  "ecmFieldName": "hfsn_shortDescription",
+                  "ecmFieldId": "hfsn_shortDescription",
+                  "inputSource": "3",
+                  "value": { "value": "", "type": "String", "format": "" },
+                  "editable": true,
+                  "operator": "EqualsCaseInsensitive"
+                },
+                {
+                  "ecmFieldName": "hfsn_changeState",
+                  "ecmFieldId": "hfsn_changeState",
+                  "inputSource": "3",
+                  "value": { "value": "", "type": "String", "format": "" },
+                  "editable": true,
+                  "operator": "EqualsCaseInsensitive"
+                },
+                {
+                  "ecmFieldName": "hfsn_priority",
+                  "ecmFieldId": "hfsn_priority",
+                  "inputSource": "3",
+                  "value": { "value": "", "type": "String", "format": "" },
+                  "editable": true,
+                  "operator": "EqualsCaseInsensitive"
+                }
+              ],
+              "displayColumns": {
+                "ecmColumnSets": [
+                  {
+                    "formFactorId": "desktop",
+                    "columns": [
+                      "hfsn_documentName",
+                      "hfsn_shortDescription",
+                      "hfsn_changeState",
+                      "hfsn_priority"
+                    ]
+                  }
+                ],
+                "defaultFormFactor": "desktop"
+              },
+              "displayColumnConfig": [
+                {
+                  "ecmColumnName": "hfsn_documentName",
+                  "ecmColumnId": "hfsn_documentName",
+                  "type": "String",
+                  "localeStrings": null
+                },
+                {
+                  "ecmColumnName": "hfsn_shortDescription",
+                  "ecmColumnId": "hfsn_shortDescription",
+                  "type": "String",
+                  "localeStrings": null
+                },
+                {
+                  "ecmColumnName": "hfsn_changeState",
+                  "ecmColumnId": "hfsn_changeState",
+                  "type": "String",
+                  "localeStrings": null
+                },
+                {
+                  "ecmColumnName": "hfsn_priority",
+                  "ecmColumnId": "hfsn_priority",
+                  "type": "String",
+                  "localeStrings": null
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    "endUserGroupConfig": [
+      {
+        "id": "",
+        "name": "ServiceNow Solution Administrator",
+        "role": "adminUser"
+      },
+      {
+        "id": "",
+        "name": "ServiceNow Content User",
+        "role": "contentUser"
+      }
+    ]
+  },
+  "configVersion": "1"
+}

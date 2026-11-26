@@ -35,3 +35,6 @@ Thumbs.db
 # Postman collections (may contain staging tokens / secrets — never commit)
 *.postman_collection.json
 *.postman_environment.json
+
+# Raw agent responses (contain document values)
+bff/logs/

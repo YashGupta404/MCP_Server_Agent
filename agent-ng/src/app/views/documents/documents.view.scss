@@ -582,13 +582,11 @@
 /* ---- table ---- */
 .docs__tableWrap {
   width: 100%;
-  max-width: 100%;
   overflow-x: auto;
-  // Wide result sets (many query columns) scroll horizontally inside the panel instead of overflowing it.
-  overscroll-behavior-x: contain;
 }
 .docs__table {
   width: 100%;
+  min-width: max-content;
   border-collapse: collapse;
 }
 .docs__table th {
@@ -957,6 +955,38 @@
 .docs__msgFile {
   font-size: 11.5px;
   opacity: 0.85;
+}
+.docs__msgDocs {
+  margin-top: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.docs__msgDoc {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 8px 10px;
+  border: 1px solid var(--mat-sys-outline-variant);
+  border-radius: 8px;
+  background: var(--mat-sys-surface);
+  color: var(--mat-sys-primary);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.docs__msgDoc:hover {
+  background: var(--mat-sys-surface-container-high);
+}
+.docs__msgDoc mat-icon {
+  flex: none;
+}
+.docs__msgDocName {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .docs__chatDock {
@@ -1346,14 +1376,6 @@
   font-size: 11px;
   font-weight: 600;
   color: var(--mat-sys-on-surface-variant);
-}
-// Match the floating label notch to the field's fill so it blends instead of showing a mismatched box.
-.docs__field--metaAuto .docs__fieldLabel {
-  background: var(--mat-sys-tertiary-container);
-  color: var(--mat-sys-on-tertiary-container);
-}
-.docs__field--metaPreview .docs__fieldLabel {
-  background: var(--mat-sys-surface-container);
 }
 .docs__fieldLabel--loading {
   display: inline-flex;

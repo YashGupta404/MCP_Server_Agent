@@ -53,6 +53,27 @@ export interface IdpClassifyResult {
   uploadable?: boolean;
 }
 
+export interface WorkerMatch {
+  wid: string | null;
+  name: string | null;
+  employeeId: string | null;
+  businessTitle?: string | null;
+  supervisoryOrganization?: string | null;
+}
+
+export interface WorkerResolveResult {
+  query: string;
+  total: number;
+  wid: string | null;
+  matches: WorkerMatch[];
+}
+
+export interface SelfWorker {
+  wid: string | null;
+  name: string | null;
+  employeeId: string | null;
+}
+
 // Lists the documents UCEB holds for a record (BFF /api/context -> MCP). Deterministic, no LLM.
 @Injectable({ providedIn: 'root' })
 export class DocumentService {
@@ -62,11 +83,13 @@ export class DocumentService {
     businessObjectType: string;
     businessObjectId: string;
     onlyMine?: boolean;
+    direct?: boolean;
   }): Promise<{ documents: UcebDocument[]; columns: string[] | null }> {
     const data = await this.bff.post<any>('/api/context', {
       businessObjectType: ctx.businessObjectType,
       businessObjectId: ctx.businessObjectId,
       onlyMine: !!ctx.onlyMine,
+      direct: !!ctx.direct,
     });
     return {
       documents: Array.isArray(data.documents) ? data.documents : [],
@@ -143,6 +166,24 @@ export class DocumentService {
     return {
       captured: Array.isArray(data.captured) ? data.captured : [],
       errors: Array.isArray(data.errors) ? data.errors : [],
+    };
+  }
+
+  // Resolves the SIGNED-IN user's own Workday identity (BFF /api/me -> IAM userinfo -> Staffing),
+  // so the chatbot can scope "my documents" to the logged-in worker.
+  async fetchMe(): Promise<SelfWorker> {
+    const data = await this.bff.get<any>('/api/me');
+    return { wid: data?.wid ?? null, name: data?.name ?? null, employeeId: data?.employeeId ?? null };
+  }
+
+  // Resolves a Workday worker's WID from a name or Employee ID (BFF /api/worker/resolve).
+  async resolveWorker(query: string): Promise<WorkerResolveResult> {
+    const data = await this.bff.get<any>(`/api/worker/resolve?q=${encodeURIComponent(query)}`);
+    return {
+      query: data?.query ?? query,
+      total: Number(data?.total ?? 0),
+      wid: data?.wid ?? null,
+      matches: Array.isArray(data?.matches) ? data.matches : [],
     };
   }
 

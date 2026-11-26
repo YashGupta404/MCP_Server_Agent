@@ -1,0 +1,74 @@
+flowchart TB
+  APP["AppComponent<br/>router-outlet"]
+
+  APP --> SIGNIN
+  APP --> PICKER
+  APP --> DOCS
+
+  subgraph SIGNIN["SignInView  /sign-in"]
+    direction TB
+    SI1["Logo"] ~~~ SI2["Title + subtitle"] ~~~ SI3["Continue button"]
+  end
+
+  subgraph PICKER["EcmPickerView  /systems"]
+    direction TB
+    P1["Header: logo · app name · close"]
+    P2["Title: Choose your content system"]
+    subgraph P3["System list"]
+      direction TB
+      P3a["Loading skeleton rows"]
+      P3b["Error alert"]
+      P3c["System row: name · default · type badge · connecting · check"]
+    end
+    P1 ~~~ P2 ~~~ P3
+  end
+
+  subgraph DOCS["DocumentsView  /documents"]
+    direction TB
+    D1["Header: logo · theme toggle · avatar · close"]
+    D2["Connected-system card: system name · refresh · collapse · record type + ID"]
+    subgraph D3["Main card"]
+      direction TB
+      D3t["Tabs: Documents | Talk with agent"]
+      subgraph D3a["Documents tab"]
+        direction TB
+        A1["Search box + Query button"]
+        A2["Query panel: saved query · operator + value · Run"]
+        A3["States: loading · error · no record · no documents"]
+        A4["Documents table: columns · file icon · kebab"]
+        A5["Pager: per page · range · prev / next"]
+        A1 ~~~ A2 ~~~ A3 ~~~ A4 ~~~ A5
+      end
+      subgraph D3b["Talk with agent tab"]
+        direction TB
+        B1["Chat log: empty state · messages · typing"]
+        B2["Dock: quick chips · attachments · input + send"]
+        B1 ~~~ B2
+      end
+      D3t ~~~ D3a
+      D3t ~~~ D3b
+    end
+    subgraph D4["Upload card"]
+      direction TB
+      U1["Drop zone"] ~~~ U2["File list + IDP badge"] ~~~ U3["Document type"] ~~~ U4["Metadata fields"] ~~~ U5["Linked record"] ~~~ U6["Auto-classify · Upload"]
+    end
+    D1 ~~~ D2 ~~~ D3 ~~~ D4
+  end
+
+  subgraph OVER["Overlays"]
+    direction TB
+    O1["Profile menu: name · email · Sign out"]
+    O2["Row menu: Download · Delete"]
+    O3["Delete confirmation dialog"]
+    O4["Document viewer: Back · title · iframe · fallback"]
+  end
+
+  SI3 -->|"signed in"| PICKER
+  P3c -->|"choose system"| DOCS
+  D2 -->|"change system"| PICKER
+  D1 -.->|"avatar"| O1
+  O1 -->|"Sign out"| SIGNIN
+  A4 -.->|"kebab"| O2
+  O2 -.->|"Delete"| O3
+  A4 -.->|"row click"| O4
+  B1 -.->|"doc link"| O4

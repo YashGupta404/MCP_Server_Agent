@@ -1,0 +1,230 @@
+{
+  "data": {
+    "configurations": {
+      "operationConfig": {
+        "query": {
+          "pageSize": 10,
+          "maxResults": null
+        },
+        "capture": {
+          "fileSizeLimit": 2000,
+          "fileTypesAllowed": [
+            "bmp",
+            "jpg",
+            "jpeg",
+            "png",
+            "pdf",
+            "tiff",
+            "docx",
+            "pptx",
+            "xlsx",
+            "txt",
+            "json",
+            "mp4",
+            "mp3"
+          ]
+        },
+        "rendition": null,
+        "viewer": {
+          "baseUrl": "https://oifsdev.hyland.com/QuickAccessViewer/viewer/document/{doc_id}"
+        }
+      },
+      "businessObjectConfig": {
+        "contextParams": {
+          "boContext": {
+            "boProp": "Id",
+            "ecmProp": "hfs_sObject_Id",
+            "ecmPropId": "223"
+          },
+          "boUser": {
+            "boProp": "CreatedById",
+            "ecmProp": "hfs_sObject_owner",
+            "ecmPropId": "224"
+          }
+        },
+        "additionalConfig": [
+          {
+            "busObject": "account",
+            "ecmContentTypeName": "Invoices",
+            "ecmContentTypeId": "205",
+            "ecmContentTypeGroupId": "116",
+            "contextParams": [],
+            "ecmMetadataFieldLabels": [
+              {
+                "ecmColumnName": "Vendor Name",
+                "ecmColumnId": "228",
+                "localeStrings": [
+                  {
+                    "culture": "en_US",
+                    "name": "Vendor Name",
+                    "description": "Default label for 228"
+                  }
+                ]
+              },
+              {
+                "ecmColumnName": "Invoice #",
+                "ecmColumnId": "229",
+                "localeStrings": [
+                  {
+                    "culture": "en_US",
+                    "name": "Invoice #",
+                    "description": "Default label for 229"
+                  }
+                ]
+              },
+              {
+                "ecmColumnName": "Invoice Total",
+                "ecmColumnId": "227",
+                "localeStrings": [
+                  {
+                    "culture": "en_US",
+                    "name": "Invoice Total",
+                    "description": "Default label for 227"
+                  }
+                ]
+              },
+              {
+                "ecmColumnName": "Invoice Date",
+                "ecmColumnId": "226",
+                "localeStrings": [
+                  {
+                    "culture": "en_US",
+                    "name": "Invoice Date",
+                    "description": "Default label for 226"
+                  }
+                ]
+              }
+            ],
+            "displayColumns": {
+              "ecmColumnSets": [
+                {
+                  "formFactorId": "desktop",
+                  "columns": [
+                    "228",
+                    "229",
+                    "227",
+                    "226"
+                  ]
+                }
+              ],
+              "defaultFormFactor": "desktop"
+            },
+            "metadataFieldImportMappings": [
+              {
+                "ecmFieldName": "228",
+                "inputSource": "6",
+                "value": {
+                  "value": "",
+                  "type": "String",
+                  "format": ""
+                }
+              },
+              {
+                "ecmFieldName": "229",
+                "inputSource": "6",
+                "value": {
+                  "value": "",
+                  "type": "String",
+                  "format": ""
+                }
+              },
+              {
+                "ecmFieldName": "227",
+                "inputSource": "6",
+                "value": {
+                  "value": "",
+                  "type": "String",
+                  "format": ""
+                }
+              },
+              {
+                "ecmFieldName": "226",
+                "inputSource": "6",
+                "value": {
+                  "value": "",
+                  "type": "String",
+                  "format": ""
+                }
+              }
+            ],
+            "defaultListQuery": null
+          },
+          {
+            "busObject": "change request",
+            "ecmContentTypeName": "ChangeRequests",
+            "ecmContentTypeId": "228",
+            "ecmContentTypeGroupId": "125",
+            "contextParams": [],
+            "ecmMetadataFieldLabels": [
+              {
+                "ecmColumnName": "Change Request Priority",
+                "ecmColumnId": "322",
+                "localeStrings": [
+                  {
+                    "culture": "en_US",
+                    "name": "Change Request Priority",
+                    "description": "Default label for 322"
+                  }
+                ]
+              }
+            ],
+            "displayColumns": {
+              "ecmColumnSets": [
+                {
+                  "formFactorId": "desktop",
+                  "columns": [
+                    "322"
+                  ]
+                }
+              ],
+              "defaultFormFactor": "desktop"
+            },
+            "metadataFieldImportMappings": [
+              {
+                "ecmFieldName": "321",
+                "inputSource": "1",
+                "value": {
+                  "value": "Id",
+                  "type": "String",
+                  "format": ""
+                }
+              },
+              {
+                "ecmFieldName": "322",
+                "inputSource": "6",
+                "value": {
+                  "value": "",
+                  "type": "String",
+                  "format": ""
+                }
+              }
+            ],
+            "defaultListQuery": null
+          }
+        ],
+        "queryConfig": null
+      },
+      "endUserGroupConfig": [
+        {
+          "id": "",
+          "name": "Salesforce Solution Administrators",
+          "role": "adminUser"
+        },
+        {
+          "id": "",
+          "name": "Salesforce Content Users",
+          "role": "contentUser"
+        }
+      ]
+    },
+    "configVersion": "1"
+  },
+  "total": 1,
+  "error": null,
+  "resolvedContext": {
+    "systemFriendlyName": "OnBase9714_Integrations_Agent",
+    "systemConfigId": "0c5afb8b-3025-48ff-a380-4531bce1b22e",
+    "systemType": "OnBase",
+    "lobName": "hfs"
+  }
+}

@@ -22,11 +22,14 @@ ext.runtime.onInstalled.addListener(() => {
 const VIEWER_COOKIE_HOSTS = [
   "cic-viewer.staging.app.hyland.com",
   "cic-viewer.dev.app.hyland.com",
+  "cic-viewer.app.hyland.com",
   "bravo.cic-viewer.sandbox.app.hyland.com",
   "auth.iam.staging.experience.hyland.com",
   "auth.iam.dev.experience.hyland.com",
+  "auth.iam.experience.hyland.com",
   "auth.staging.app.hyland.com",
   "auth.dev.app.hyland.com",
+  "auth.app.hyland.com",
 ];
 
 function viewerHostMatches(domain) {

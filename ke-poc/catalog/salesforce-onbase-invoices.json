@@ -1,0 +1,17 @@
+{
+  "doctypes": [
+    {
+      "contentTypeId": "Invoices",
+      "contentTypeLabel": "Invoices",
+      "keywords": [
+        { "id": "223", "label": "sObject Id", "dataType": "String", "role": "recordId" },
+        { "id": "224", "label": "sObject Owner", "dataType": "String", "role": "owner" },
+        { "id": "228", "label": "Vendor Name", "dataType": "String" },
+        { "id": "229", "label": "Invoice #", "dataType": "String" },
+        { "id": "227", "label": "Invoice Total", "dataType": "String" },
+        { "id": "226", "label": "Invoice Date", "dataType": "String" },
+        { "id": "234", "label": "currency_type", "dataType": "Currency" }
+      ]
+    }
+  ]
+}

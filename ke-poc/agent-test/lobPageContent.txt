@@ -1,0 +1,13 @@
+Account
+Health Systems
+Account Owner: Yash Gupta
+Account Name: Health Systems
+Account Number: CD451796
+Type: Customer - Direct
+Industry: Healthcare
+Phone: (555) 010-4421
+Website: www.healthsystems.example
+Billing Address: 120 Main St, Columbus, OH 43215
+Related
+Documents
+Doc ID | Name | Type | Size | Created Date

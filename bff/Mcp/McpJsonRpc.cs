@@ -405,7 +405,10 @@ static class McpJsonRpc
          text.Contains("Request timeout", StringComparison.OrdinalIgnoreCase) ||
          text.Contains("Operation timed out", StringComparison.OrdinalIgnoreCase) ||
          text.Contains("currently unavailable", StringComparison.OrdinalIgnoreCase) ||
-         text.Contains("service unavailable", StringComparison.OrdinalIgnoreCase));
+         text.Contains("service unavailable", StringComparison.OrdinalIgnoreCase) ||
+         // OnBase/CFS capture broker intermittently 500s with this generic message; a retry usually
+         // succeeds (verified: the same file/attributes capture fine on a second attempt).
+         text.Contains("unexpected error occurred at the broker", StringComparison.OrdinalIgnoreCase));
 
     private static async Task<(string Text, bool IsError)> CallToolOnceAsync(
         IHttpClientFactory httpFactory, McpOptions mcp, string toolName, object arguments,
@@ -604,7 +607,11 @@ static class McpJsonRpc
                 return null;
             }
 
-            string name = PickValue("hfs_Name", "Document", "Document Name", "Name", "File Name", "Title") ?? docId;
+            string name = PickValue("hfs_Name", "Document", "Document Name", "Name", "File Name", "Title")
+                // Prefixed CIC name fields, e.g. ServiceNow's hfsn_documentName.
+                ?? attributes.FirstOrDefault(kv => kv.Key.EndsWith("documentName", StringComparison.OrdinalIgnoreCase)
+                    && !string.IsNullOrWhiteSpace(kv.Value)).Value
+                ?? docId;
             string? type = PickValue("Document Type", "Type");
 
             // Drop the columns surfaced as name/type (and their duplicates) so the card sub-line doesn't

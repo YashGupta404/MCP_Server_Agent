@@ -1,0 +1,21 @@
+INVOICE
+
+Vendor Name: Acme Industrial Supply Co.
+Invoice #: INV-2026-004821
+Invoice Date: 2026-11-10
+Due Date: 2026-12-10
+
+Bill To:
+Globex Corporation
+Account: Globex Corporation
+
+Description                     Qty     Unit Price     Amount
+Steel fasteners (box)            40        12.50        500.00
+Hydraulic hose assembly           6        85.00        510.00
+On-site installation labor       12        95.00       1140.00
+
+Subtotal:                                              2150.00
+Tax (8%):                                               172.00
+Invoice Total:                                 USD     2322.00
+
+Remit payment to Acme Industrial Supply Co. within 30 days.

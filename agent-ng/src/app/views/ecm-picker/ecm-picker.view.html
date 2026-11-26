@@ -18,6 +18,83 @@
     <h1 class="ecm__title">{{ 'ecm.title' | translate }}</h1>
     <p class="ecm__subtitle">{{ 'ecm.subtitle' | translate }}</p>
 
+    <!-- AI context detection (PoC: context_extractor agent, works on any website, needs only sign-in) -->
+    <div
+      style="display:flex; flex-direction:column; gap:8px; padding:12px; margin-bottom:16px; border:1px solid var(--mat-sys-outline); border-radius:8px; background: var(--mat-sys-surface-container);"
+    >
+      <div style="display:flex; align-items:center; justify-content:space-between; gap:8px;">
+        <strong>AI context (PoC)</strong>
+        <button
+          type="button"
+          (click)="detectAiContext()"
+          [disabled]="aiBusy"
+          style="padding:6px 12px; border-radius:6px; border:1px solid var(--mat-sys-outline); background: var(--mat-sys-primary); color: var(--mat-sys-on-primary); cursor:pointer;"
+        >
+          {{ aiBusy ? 'Detecting…' : 'Detect context' }}
+        </button>
+      </div>
+      <div *ngIf="aiError" style="color: var(--mat-sys-error); font-size:12px;">{{ aiError }}</div>
+      <pre
+        *ngIf="aiContextText"
+        style="white-space:pre-wrap; word-break:break-word; margin:0; font-size:12px; background: var(--mat-sys-surface); padding:8px; border-radius:6px;"
+      >{{ aiContextText }}</pre>
+    </div>
+
+    <!-- KE auto-config (PoC): drop sample docs, KE generates the solution-config mapping -->
+    <div
+      style="display:flex; flex-direction:column; gap:8px; padding:12px; margin-bottom:16px; border:1px solid var(--mat-sys-outline); border-radius:8px; background: var(--mat-sys-surface-container);"
+    >
+      <div style="display:flex; align-items:center; justify-content:space-between; gap:8px;">
+        <strong>Auto-map (PoC)</strong>
+        <button
+          type="button"
+          (click)="autoMap()"
+          [disabled]="mapBusy"
+          style="padding:6px 12px; border-radius:6px; border:1px solid var(--mat-sys-outline); background: var(--mat-sys-primary); color: var(--mat-sys-on-primary); cursor:pointer;"
+        >
+          {{ mapBusy ? 'Mapping…' : 'Generate mapping' }}
+        </button>
+      </div>
+      <input type="file" multiple (change)="onMapFiles($event)" style="font-size:12px;" />
+      <div *ngIf="mapError" style="color: var(--mat-sys-error); font-size:12px;">{{ mapError }}</div>
+
+      <!-- Review the proposal, then write the config entry + capture -->
+      <div *ngIf="proposal as p" style="display:flex; flex-direction:column; gap:6px; font-size:12px; background: var(--mat-sys-surface); padding:8px; border-radius:6px;">
+        <div><strong>Record:</strong> {{ p.businessObjectType }} {{ p.businessObjectId }}</div>
+        <div>
+          <strong>Document type:</strong> {{ p.docTypeName }} ({{ p.docTypeId }})
+          <span *ngIf="p.confidence !== null"> &middot; confidence {{ p.confidence }}</span>
+        </div>
+        <div *ngIf="p.confidenceDetail" style="color: var(--mat-sys-on-surface-variant);">{{ p.confidenceDetail }}</div>
+        <div><strong>Record field:</strong> {{ p.recordFieldName }} ({{ p.recordFieldId }}) = {{ p.businessObjectId }}</div>
+        <label *ngFor="let f of p.fields" style="display:flex; flex-direction:column; gap:2px;">
+          <span>{{ f.name }} ({{ f.id }})</span>
+          <input type="text" [(ngModel)]="f.value" style="font-size:12px; padding:4px; border:1px solid var(--mat-sys-outline); border-radius:4px;" />
+        </label>
+        <button
+          type="button"
+          (click)="uploadMapped()"
+          [disabled]="captureBusy"
+          style="align-self:flex-end; padding:6px 12px; border-radius:6px; border:1px solid var(--mat-sys-outline); background: var(--mat-sys-primary); color: var(--mat-sys-on-primary); cursor:pointer;"
+        >
+          {{ captureBusy ? 'Uploading…' : 'Upload' }}
+        </button>
+        <div *ngIf="captureDone" style="color: var(--mat-sys-primary);">{{ captureDone }}</div>
+        <div *ngIf="captureError" style="color: var(--mat-sys-error);">{{ captureError }}</div>
+        <details *ngIf="captureResultText">
+          <summary>Capture details</summary>
+          <pre style="white-space:pre-wrap; word-break:break-word; margin:0;">{{ captureResultText }}</pre>
+        </details>
+      </div>
+
+      <details *ngIf="mapResultText">
+        <summary style="font-size:12px;">Mapping details</summary>
+        <pre
+          style="white-space:pre-wrap; word-break:break-word; margin:0; font-size:12px; background: var(--mat-sys-surface); padding:8px; border-radius:6px;"
+        >{{ mapResultText }}</pre>
+      </details>
+    </div>
+
     <div class="ecm__list" *ngIf="loading">
       <div class="ecm__skeleton" *ngFor="let s of skeletons"></div>
     </div>

@@ -1,0 +1,146 @@
+{
+  "contextParams": {
+    "boContext": {
+      "boProp": "number",
+      "ecmProp": "223",
+      "ecmPropId": "223"
+    },
+    "boUser": {
+      "boProp": "opened_by",
+      "ecmProp": "224",
+      "ecmPropId": "224"
+    }
+  },
+  "additionalConfig": [
+    {
+      "busObject": "account",
+      "ecmContentTypeName": "Invoices",
+      "ecmContentTypeId": "Invoices",
+      "ecmMetadataFieldLabels": [
+        {
+          "ecmColumnName": "228",
+          "ecmColumnId": "228",
+          "localeStrings": [
+            {
+              "culture": "en_US",
+              "name": "Vendor Name",
+              "description": "Default label for 228"
+            }
+          ]
+        },
+        {
+          "ecmColumnName": "229",
+          "ecmColumnId": "229",
+          "localeStrings": [
+            {
+              "culture": "en_US",
+              "name": "Invoice #",
+              "description": "Default label for 229"
+            }
+          ]
+        },
+        {
+          "ecmColumnName": "227",
+          "ecmColumnId": "227",
+          "localeStrings": [
+            {
+              "culture": "en_US",
+              "name": "Invoice Total",
+              "description": "Default label for 227"
+            }
+          ]
+        },
+        {
+          "ecmColumnName": "226",
+          "ecmColumnId": "226",
+          "localeStrings": [
+            {
+              "culture": "en_US",
+              "name": "Invoice Date",
+              "description": "Default label for 226"
+            }
+          ]
+        },
+        {
+          "ecmColumnName": "234",
+          "ecmColumnId": "234",
+          "localeStrings": [
+            {
+              "culture": "en_US",
+              "name": "currency_type",
+              "description": "Default label for 234"
+            }
+          ]
+        }
+      ],
+      "displayColumns": {
+        "ecmColumnSets": [
+          {
+            "formFactorId": "desktop",
+            "columns": [
+              "228",
+              "229",
+              "227",
+              "226",
+              "234"
+            ]
+          }
+        ],
+        "defaultFormFactor": "desktop"
+      },
+      "metadataFieldImportMappings": [
+        {
+          "ecmFieldName": "228",
+          "inputSource": "6",
+          "value": {
+            "value": "",
+            "type": "String",
+            "format": ""
+          }
+        },
+        {
+          "ecmFieldName": "229",
+          "inputSource": "6",
+          "value": {
+            "value": "",
+            "type": "String",
+            "format": ""
+          }
+        },
+        {
+          "ecmFieldName": "227",
+          "inputSource": "6",
+          "value": {
+            "value": "",
+            "type": "String",
+            "format": ""
+          }
+        },
+        {
+          "ecmFieldName": "226",
+          "inputSource": "6",
+          "value": {
+            "value": "",
+            "type": "String",
+            "format": ""
+          }
+        },
+        {
+          "ecmFieldName": "234",
+          "inputSource": "6",
+          "value": {
+            "value": "",
+            "type": "Currency",
+            "format": ""
+          }
+        }
+      ],
+      "defaultListQuery": {
+        "name": "Invoices",
+        "id": "Invoices",
+        "type": "ContentType",
+        "default": true
+      }
+    }
+  ]
+}

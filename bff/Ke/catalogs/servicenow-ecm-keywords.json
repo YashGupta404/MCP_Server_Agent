@@ -1,0 +1,16 @@
+{
+  "doctypes": [
+    {
+      "contentTypeId": "change-request-type",
+      "contentTypeLabel": "Change Request",
+      "keywords": [
+        { "id": "hfsn_recordNumber", "label": "Record Number", "dataType": "String", "role": "recordId" },
+        { "id": "hfsn_recordOwner", "label": "Record Owner", "dataType": "String", "role": "owner" },
+        { "id": "hfsn_documentName", "label": "Document Name", "dataType": "String" },
+        { "id": "hfsn_shortDescription", "label": "Short Description", "dataType": "String" },
+        { "id": "hfsn_changeState", "label": "Change State", "dataType": "String" },
+        { "id": "hfsn_priority", "label": "Priority", "dataType": "String" }
+      ]
+    }
+  ]
+}

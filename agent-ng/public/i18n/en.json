@@ -56,8 +56,9 @@
       "fieldsLoading": "Loading search fields\u2026"
     },
     "loading": "Loading documents\u2026",
+    "detecting": "Detecting record\u2026",
     "empty": {
-      "noRecord": "Open a Salesforce / Workday record in this tab, then press refresh.",
+      "noRecord": "Open a Salesforce, ServiceNow or Workday record in this tab, then select refresh.",
       "noContent": "No content linked to this record yet."
     },
     "pager": {
@@ -68,6 +69,23 @@
     "menu": {
       "download": "Download",
       "delete": "Delete"
+    },
+    "denied": {
+      "title": "Access restricted",
+      "message": "You are not authorised to view or capture {{who}}'s documents."
+    },
+    "record": {
+      "id": "ID {{id}}",
+      "employeeId": "Employee ID {{id}}"
+    },
+    "worker": {
+      "unnamed": "(unnamed worker)",
+      "checking": "Checking access to {{who}}\u2026",
+      "loadingDocs": "Loading {{who}}'s documents\u2026",
+      "finding": "Finding Workday worker \u201c{{query}}\u201d\u2026",
+      "none": "No Workday worker matched \u201c{{query}}\u201d.",
+      "pick": "{{count}} workers matched \u201c{{query}}\u201d \u2014 pick one:",
+      "failed": "Worker lookup failed: {{detail}}"
     }
   },
   "viewer": {

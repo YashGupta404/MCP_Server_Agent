@@ -1,0 +1,71 @@
+{
+  "data": {
+    "configurations": {
+      "operationConfig": {
+        "query": {
+          "pageSize": 10,
+          "maxResults": null
+        },
+        "capture": {
+          "fileSizeLimit": 2000,
+          "fileTypesAllowed": [
+            "bmp",
+            "jpg",
+            "jpeg",
+            "png",
+            "pdf",
+            "tiff",
+            "docx",
+            "pptx",
+            "xlsx",
+            "txt",
+            "json",
+            "mp4",
+            "mp3"
+          ]
+        },
+        "rendition": null,
+        "viewer": {
+          "baseUrl": "https://oifsdev.hyland.com/QuickAccessViewer/viewer/document/{doc_id}"
+        }
+      },
+      "businessObjectConfig": {
+        "contextParams": {
+          "boContext": {
+            "boProp": "Id",
+            "ecmProp": "hfs_sObject_Id",
+            "ecmPropId": "223"
+          },
+          "boUser": {
+            "boProp": "CreatedById",
+            "ecmProp": "hfs_sObject_owner",
+            "ecmPropId": "224"
+          }
+        },
+        "additionalConfig": null,
+        "queryConfig": null
+      },
+      "endUserGroupConfig": [
+        {
+          "id": "",
+          "name": "Salesforce Solution Administrators",
+          "role": "adminUser"
+        },
+        {
+          "id": "",
+          "name": "Salesforce Content Users",
+          "role": "contentUser"
+        }
+      ]
+    },
+    "configVersion": "1"
+  },
+  "total": 1,
+  "error": null,
+  "resolvedContext": {
+    "systemFriendlyName": "OnBase9714_Integrations_Agent",
+    "systemConfigId": "0c5afb8b-3025-48ff-a380-4531bce1b22e",
+    "systemType": "OnBase",
+    "lobName": "hfs"
+  }
+}

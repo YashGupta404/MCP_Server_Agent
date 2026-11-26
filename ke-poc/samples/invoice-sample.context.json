@@ -1,0 +1,58 @@
+{
+  "id": "0790f386-d259-45f8-abf1-8cbe69637f64",
+  "timestamp": "2026-11-16T10:49:24.831967+00:00",
+  "results": [
+    {
+      "objectKey": "contents/06a2be36-c97a-4edc-864a-6741ba1643ab/34b32da9-e17d-420c-bb31-60f3fca148fb/34b32da9-e17d-420c-bb31-60f3fca148fb",
+      "textMetadata": null,
+      "textSummary": {
+        "isSuccess": true,
+        "result": "Acme Industrial Supply Co. issued invoice INV-2026-004821 to Globex Corporation dated November 10, 2026, due December 10, 2026. The invoice totals USD 2,322.00, comprising steel fasteners ($500), hydraulic hose assembly ($510), installation labor ($1,140), plus 8% tax ($172). Payment due within 30 days.",
+        "error": null
+      },
+      "textClassification": {
+        "isSuccess": true,
+        "result": "invoice",
+        "error": null
+      },
+      "namedEntityText": {
+        "isSuccess": true,
+        "result": {
+          "organizations": [
+            "Acme Industrial Supply Co.",
+            "Globex Corporation"
+          ],
+          "dates_times": [
+            "2026-11-10",
+            "2026-12-10"
+          ],
+          "monetary_values": [
+            "12.50",
+            "85.00",
+            "95.00",
+            "500.00",
+            "510.00",
+            "1140.00",
+            "2150.00",
+            "172.00",
+            "2322.00",
+            "USD"
+          ],
+          "percentages": [
+            "8%"
+          ],
+          "products_brands": [
+            "Steel fasteners",
+            "Hydraulic hose assembly"
+          ],
+          "ids_identifiers": [
+            "INV-2026-004821"
+          ]
+        },
+        "error": null
+      }
+    }
+  ],
+  "status": "SUCCESS",
+  "inProgress": false
+}

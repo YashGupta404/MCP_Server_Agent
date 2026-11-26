@@ -8,7 +8,7 @@ import { AgentAuthService } from '../../services/auth/agent-auth.service';
 import { BffApiService } from '../../services/bff/bff-api.service';
 import { ChatService } from '../../services/chat.service';
 import { ContextDetectorService } from '../../services/context-detector.service';
-import { DocTypeField, DocumentService, IdpClassifyResult, QueryInfo, QueryInput } from '../../services/document.service';
+import { DocTypeField, DocumentService, IdpClassifyResult, QueryInfo, QueryInput, SelfWorker, WorkerMatch } from '../../services/document.service';
 import { Settings } from '../../services/settings';
 import { SystemConfigService } from '../../services/system-config.service';
 import { ThemeService } from '../../services/theme.service';
@@ -36,6 +36,15 @@ export class DocumentsView implements OnInit, OnDestroy {
   systemCollapsed = false;
   documents: UcebDocument[] = [];
   columns: string[] | null = null;
+  // ---- Workday worker resolution / self-scoping ----
+  selfWorker: SelfWorker | null = null;
+  notAuthorized = false;
+  notAuthorizedWho = '';
+  resolveStatus = '';
+  workerMatches: WorkerMatch[] = [];
+  resolving = false;
+  private loadSeq = 0;
+  private navTabUrl = '';
   search = '';
   page = 1;
   pageSize = 7;
@@ -46,6 +55,9 @@ export class DocumentsView implements OnInit, OnDestroy {
   menuLeft = 0;
   // ---- upload card state ----
   docTypes: string[] = [];
+  private docTypesBoType: string | null = null;
+  // Which upload file the values in docTypeFieldValues belong to.
+  private metaValuesFor: string | null = null;
   docTypesLoading = false;
   docTypesError = '';
   selectedDocType = '';
@@ -138,12 +150,6 @@ export class DocumentsView implements OnInit, OnDestroy {
     await this.router.navigate(['/sign-in']);
   }
 
-  // fetch continuations land outside Angular's zone; re-enter + detect so backend-driven state
-  // updates render immediately instead of waiting for the next user interaction.
-  private tick(): void {
-    this.zone.run(() => this.cdr.detectChanges());
-  }
-
   ngOnDestroy(): void {
     this.unsub?.();
     clearTimeout(this.debounce);
@@ -159,27 +165,119 @@ export class DocumentsView implements OnInit, OnDestroy {
 
   private async checkContextChanged(): Promise<void> {
     const ctx = await this.ctxSvc.getActiveContext();
-    // Mid-navigation the URL/content script can momentarily resolve to nothing — don't wipe the
-    // current list on a transient null; only react once a real record is on the tab.
-    if (!ctx?.businessObjectId) return;
-    const key = (c: RecordContext | null) => `${c?.businessObjectType || ''}:${c?.businessObjectId || ''}`;
+    // Did the active tab navigate to a different page (e.g. another worker, or back/forward)?
+    const url = this.ctxSvc.lastTabUrl;
+    const navigated = !!url && url !== this.navTabUrl;
+    this.navTabUrl = url;
+    // React to real records AND Workday worker-resolution / not-authorised pages; ignore transient nulls.
+    if (!ctx?.businessObjectId && !ctx?.needsResolve && !ctx?.notAuthorized) {
+      // On a fresh Workday navigation the context may not have resolved yet (lazy Employee ID) — show the
+      // "Detecting…" spinner so the previous record/403 doesn't linger; reload fires on the next publish.
+      if (navigated && /\.(workday|myworkday)\.com/i.test(url)) {
+        this.zone.run(() => {
+          this.loading = true;
+          this.notAuthorized = false;
+          this.workerMatches = [];
+          this.resolveStatus = this.translate.instant('documents.detecting');
+          this.cdr.detectChanges();
+        });
+      }
+      return;
+    }
+    const key = (c: RecordContext | null) =>
+      `${c?.businessObjectType || ''}:${c?.businessObjectId || c?.resolveQuery || c?.displayName || ''}:${c?.needsResolve ? 'r' : ''}${c?.notAuthorized ? 'n' : ''}`;
     const changed = key(ctx) !== key(this.context);
-    const emptyRetry = !this.loading && !this.error && this.documents.length === 0;
-    if (changed || emptyRetry) {
+    const emptyRetry =
+      !this.loading && !this.error && this.documents.length === 0 && !this.notAuthorized && !this.workerMatches.length;
+    // Always reload on a real navigation (even back to the SAME worker) so documents auto-refresh
+    // without needing a manual refresh click.
+    if (changed || emptyRetry || navigated) {
       await this.reload();
     }
   }
 
   async reload(): Promise<void> {
+    const token = ++this.loadSeq;
     this.loading = true;
     this.error = '';
     this.menuFor = '';
     this.menuDoc = null;
+    this.notAuthorized = false;
+    this.resolveStatus = this.translate.instant('documents.detecting');
+    this.workerMatches = [];
     try {
       const ctx = await this.resolveContext();
+      if (token !== this.loadSeq) return;
+
+      // Workday: resolve the signed-in worker ("self") once so chat can scope to the logged-in user.
+      if (this.isWorkdayContext(ctx) && !this.selfWorker) {
+        try {
+          this.selfWorker = await this.docSvc.fetchMe();
+        } catch {
+          /* non-fatal: chat falls back to the on-screen record */
+        }
+        if (token !== this.loadSeq) return;
+      }
+
+      // Workday peer / your own manager: name but no Employee ID -> not authorised. A subordinate's
+      // Employee ID can render a beat late, so re-check briefly before committing to the 403.
+      if (ctx?.notAuthorized) {
+        this.context = ctx;
+        this.documents = [];
+        this.columns = null;
+        this.recompute();
+        // If we already know the Manager and it isn't the signed-in user, this is a peer/superior -
+        // deny immediately (no probe, no grace wait). But never deny while the detector is still
+        // auto-scrolling to hydrate a lazy Employee ID — hold the loading state instead.
+        if (!ctx.probing && ctx.managerName && !this.isAuthorizedForWorker(ctx)) {
+          this.resolveStatus = '';
+          this.notAuthorized = true;
+          this.notAuthorizedWho = ctx.displayName || 'this employee';
+          return;
+        }
+        // Kick a fresh auto-scroll probe (resets its budget) so a lazy Employee ID re-hydrates on this
+        // reload/Refresh, then show "checking access" while the grace re-check waits for it.
+        void this.ctxSvc.reprobe();
+        // Show a clear "checking access" state (not the 403) while Workday lazy-renders the Employee ID.
+        this.resolveStatus = this.translate.instant('documents.worker.checking', { who: ctx.displayName || 'this worker' });
+        const flipped = await this.graceRecheckNotAuthorized(token);
+        if (token !== this.loadSeq) return;
+        this.resolveStatus = '';
+        if (flipped) {
+          await this.reload();
+          return;
+        }
+        this.notAuthorized = true;
+        this.notAuthorizedWho = ctx.displayName || 'this employee';
+        return;
+      }
+
+      // Workday worker profile with no WID in the URL: resolve the scraped name/Employee ID -> WID.
+      if (ctx?.needsResolve && ctx.resolveQuery) {
+        // Employee-ID visibility alone is NOT authorisation — Workday shows Employee IDs for superiors
+        // too. Only self + your own reports (Manager == signed-in user) may be viewed.
+        if (!this.isAuthorizedForWorker(ctx)) {
+          this.context = ctx;
+          this.documents = [];
+          this.columns = null;
+          this.recompute();
+          this.resolveStatus = '';
+          this.notAuthorized = true;
+          this.notAuthorizedWho = ctx.displayName || 'this employee';
+          return;
+        }
+        this.context = ctx;
+        this.documents = [];
+        this.columns = null;
+        this.recompute();
+        await this.resolveAndLoadWorker(ctx.resolveQuery, token);
+        return;
+      }
+
       // Never wipe an already-loaded list when the page momentarily reports no record
       // (Salesforce fires many navigation events; a transient null must not blank the table).
       if (!ctx?.businessObjectId || !ctx?.businessObjectType) {
+        this.resolveStatus = '';
         if (!this.context?.businessObjectId) {
           this.documents = [];
           this.columns = null;
@@ -188,10 +286,14 @@ export class DocumentsView implements OnInit, OnDestroy {
         return;
       }
       this.context = ctx;
+      // Doc types may have loaded before the record was detected (unscoped list) - rescope them.
+      if (ctx.businessObjectType !== this.docTypesBoType) void this.loadDocTypes();
       const { documents, columns } = await this.docSvc.listForContext({
         businessObjectType: ctx.businessObjectType,
         businessObjectId: ctx.businessObjectId,
       });
+      if (token !== this.loadSeq) return;
+      this.resolveStatus = '';
       this.documents = documents;
       this.columns = columns;
       this.page = 1;
@@ -227,12 +329,13 @@ export class DocumentsView implements OnInit, OnDestroy {
     return this.ctxSvc.lastDebug;
   }
 
-  // The content script / background may still be warming up when the panel opens; retry briefly.
+  // The content script / background may still be warming up (or the LOB page may be lazy-rendering the
+  // worker name) when the panel opens; retry for a few seconds while the loading spinner shows.
   private async resolveContext(): Promise<RecordContext | null> {
-    for (let i = 0; i < 4; i++) {
+    for (let i = 0; i < 8; i++) {
       const ctx = await this.ctxSvc.getActiveContext();
-      if (ctx?.businessObjectId) return ctx;
-      await new Promise((r) => setTimeout(r, 300));
+      if (ctx?.businessObjectId || ctx?.needsResolve || ctx?.notAuthorized) return ctx;
+      await new Promise((r) => setTimeout(r, 400));
     }
     return this.ctxSvc.getActiveContext();
   }
@@ -450,12 +553,8 @@ export class DocumentsView implements OnInit, OnDestroy {
         this.queryStatus = e?.message || 'Could not load queries.';
         this.queryStatusError = true;
       } finally {
+        this.queriesLoading = false;
         this.queriesInFlight = null;
-        // The fetch resolves outside Angular's zone — force a tick so the spinner clears.
-        this.zone.run(() => {
-          this.queriesLoading = false;
-          this.cdr.detectChanges();
-        });
       }
     })();
     return this.queriesInFlight;
@@ -508,11 +607,7 @@ export class DocumentsView implements OnInit, OnDestroy {
       this.queryStatus = e?.message || 'Could not load query fields.';
       this.queryStatusError = true;
     } finally {
-      // The metadata fetch resolves outside Angular's zone — force a tick so the fields render.
-      this.zone.run(() => {
-        this.queryFieldsLoading = false;
-        this.cdr.detectChanges();
-      });
+      this.queryFieldsLoading = false;
     }
   }
 
@@ -557,6 +652,47 @@ export class DocumentsView implements OnInit, OnDestroy {
       this.queryStatusError = true;
       return;
     }
+
+    // CFS saved queries ("*_CFS") can't run via queries/execute (UCEB 500s on CFS). Each maps 1:1 to a
+    // business-object type, so list that object's documents directly via the working list endpoint.
+    const selected = this.queries.find((q) => q.id === this.selectedQueryId);
+    if (/_CFS$/i.test((selected as any)?.name || '')) {
+      const objInput = this.queryInputs.find((i) => /object id\s*$/i.test(i.name || ''));
+      const objVal = objInput ? (this.queryValues[objInput.id] || '').trim() : '';
+      if (!objInput || !objVal) {
+        this.queryStatus = `Enter the ${objInput?.name || 'Object ID'} to search.`;
+        this.queryStatusError = true;
+        return;
+      }
+      const boType = (objInput.name || '').replace(/\s*object id\s*$/i, '').replace(/\s+/g, '').toLowerCase();
+      this.querySearching = true;
+      this.queryStatus = 'Searching\u2026';
+      this.queryStatusError = false;
+      try {
+        const { documents, columns } = await this.docSvc.listForContext({
+          businessObjectType: boType,
+          businessObjectId: objVal,
+          direct: true,
+        });
+        const cols = this.queryMetaCache[this.selectedQueryId]?.cols;
+        this.documents = documents;
+        this.columns = cols && cols.length ? cols : columns;
+        this.page = 1;
+        this.recompute();
+        this.queryActive = true;
+        this.queryStatus = `${documents.length} result(s).`;
+        this.queryStatusError = false;
+      } catch (e: any) {
+        this.queryStatus = e?.message || 'Query failed.';
+        this.queryStatusError = true;
+      } finally {
+        this.querySearching = false;
+        // listForContext resolves off Angular's zone (fetch), so repaint the results now.
+        this.zone.run(() => this.cdr.detectChanges());
+      }
+      return;
+    }
+
     const filter = this.collectQueryFilter();
     if (filter.error) {
       this.queryStatus = filter.error;
@@ -587,12 +723,9 @@ export class DocumentsView implements OnInit, OnDestroy {
       this.queryStatus = e?.message || 'Query failed.';
       this.queryStatusError = true;
     } finally {
-      // The query resolves outside Angular's zone — force a tick so results render and the
-      // "Searching…" state clears without needing a manual click in the panel.
-      this.zone.run(() => {
-        this.querySearching = false;
-        this.cdr.detectChanges();
-      });
+      this.querySearching = false;
+      // executeQuery resolves off Angular's zone (fetch), so repaint the results now.
+      this.zone.run(() => this.cdr.detectChanges());
     }
   }
 
@@ -610,7 +743,7 @@ export class DocumentsView implements OnInit, OnDestroy {
 
   // ---- Talk with agent (BFF /api/chat -> Agent Builder -> dev tunnel -> MCP) ----
   @ViewChild('chatLog') private chatLogRef?: ElementRef<HTMLDivElement>;
-  chatTurns: Array<{ role: 'user' | 'agent' | 'error'; text: string; html?: SafeHtml; files?: string[] }> = [];
+  chatTurns: Array<{ role: 'user' | 'agent' | 'error'; text: string; html?: SafeHtml; files?: string[]; docs?: Array<{ docId: string; name: string }> }> = [];
   chatInput = '';
   chatSending = false;
   chatFiles: File[] = [];
@@ -631,6 +764,13 @@ export class DocumentsView implements OnInit, OnDestroy {
     this.chatFiles.splice(i, 1);
   }
 
+  // "show/list/see my documents" etc. -> render the real list deterministically (not via the LLM).
+  // Excludes the search chip ("I want to search a document" has no show/list verb).
+  private isListDocsIntent(text: string): boolean {
+    const t = (text || '').toLowerCase().trim();
+    return /\b(show|list|see|view|display|get|fetch)\b/.test(t) && /\bdoc(ument)?s?\b/.test(t);
+  }
+
   async sendChat(): Promise<void> {
     const text = this.chatInput.trim();
     const files = this.chatFiles;
@@ -642,26 +782,78 @@ export class DocumentsView implements OnInit, OnDestroy {
     this.scrollChat();
     try {
       const attachments = await Promise.all(files.map((f) => this.fileToAttachment(f)));
-      const reply = await this.chat.send(this.buildOutgoing(text), attachments, this.context);
-      this.chatTurns.push({
-        role: 'agent',
-        text: reply,
-        html: this.sanitizer.bypassSecurityTrustHtml(renderMarkdown(reply)),
+      const chatContext = this.chatScopeContext();
+      // Deterministic fast-path: "show my documents" renders the REAL list (all of them, with Open
+      // buttons) instantly, instead of the slow LLM — which also truncates/caps long lists and can hit
+      // the agent's output limit. Non-listing questions still go to the agent.
+      if (!files.length && this.isListDocsIntent(text) && chatContext?.businessObjectId && chatContext?.businessObjectType) {
+        const { documents } = await this.docSvc.listForContext({
+          businessObjectType: chatContext.businessObjectType,
+          businessObjectId: chatContext.businessObjectId,
+          direct: true,
+        });
+        const who = chatContext.displayName || 'this record';
+        const n = documents.length;
+        const msg = n
+          ? `Here ${n === 1 ? 'is' : 'are'} ${n} document${n === 1 ? '' : 's'} for ${who}:`
+          : `No documents found for ${who}.`;
+        const docs = n ? documents.map((d) => ({ docId: d.docId, name: d.name || d.docId })) : undefined;
+        // The BFF call lands outside Angular's zone, so render the turn inside it or it won't show.
+        this.zone.run(() => {
+          this.chatTurns.push({
+            role: 'agent',
+            text: msg,
+            html: this.sanitizer.bypassSecurityTrustHtml(renderMarkdown(msg)),
+            docs,
+          });
+          this.chatSending = false;
+          this.cdr.detectChanges();
+        });
+        this.scrollChat();
+        return;
+      }
+      const reply = await this.chat.send(this.buildOutgoing(text, chatContext), attachments, chatContext);
+      const { clean, docs } = this.extractChatDocs(reply);
+      this.zone.run(() => {
+        this.chatTurns.push({
+          role: 'agent',
+          text: clean,
+          html: this.sanitizer.bypassSecurityTrustHtml(renderMarkdown(clean)),
+          docs: docs.length ? docs : undefined,
+        });
+        this.cdr.detectChanges();
       });
       this.openViewerFromReply(reply);
       if (this.context?.businessObjectId && files.length) await this.reload();
     } catch (e: any) {
-      this.chatTurns.push({ role: 'error', text: 'Error: ' + (e?.message || 'Agent call failed.') });
+      this.zone.run(() => {
+        this.chatTurns.push({ role: 'error', text: 'Error: ' + (e?.message || 'Agent call failed.') });
+        this.cdr.detectChanges();
+      });
     } finally {
-      this.chatSending = false;
+      this.zone.run(() => {
+        this.chatSending = false;
+        this.cdr.detectChanges();
+      });
       this.scrollChat();
-      this.tick();
     }
   }
 
+  // Workday: the chatbot answers as the SIGNED-IN worker (self), even when the panel shows a
+  // subordinate. Other LOBs use the on-screen record.
+  private chatScopeContext(): RecordContext | null {
+    if (this.isWorkdayContext(this.context) && this.selfWorker?.wid) {      return {
+        businessObjectType: 'employee',
+        businessObjectId: this.selfWorker.wid,
+        displayName: this.selfWorker.name || `employee ${this.selfWorker.wid}`,
+        source: 'workday',
+      };
+    }
+    return this.context;
+  }
+
   // Append the on-screen record as a hint so "this record" resolves without the user typing an id.
-  private buildOutgoing(text: string): string {
-    const c = this.context;
+  private buildOutgoing(text: string, c: RecordContext | null = this.context): string {
     if (!c?.businessObjectId) return text;
     const hint =
       `\n\n[Context \u2014 the user is viewing this record in the browser: ` +
@@ -671,8 +863,7 @@ export class DocumentsView implements OnInit, OnDestroy {
   }
 
   // If the agent's reply contains a Hyland viewer link, also open it in the in-panel viewer.
-  private openViewerFromReply(reply: string): void {
-    if (typeof reply !== 'string') return;
+  private openViewerFromReply(reply: string): void {    if (typeof reply !== 'string') return;
     const urls = reply.match(/https?:\/\/[^\s)"'\]]+/gi) || [];
     const viewer = urls
       .map((u) => u.replace(/[.,);\]]+$/, ''))
@@ -680,6 +871,27 @@ export class DocumentsView implements OnInit, OnDestroy {
     if (!viewer) return;
     const idMatch = reply.match(/document\s+([A-Za-z0-9_-]+)/i);
     this.openViewer(viewer, idMatch ? `Document ${idMatch[1]}` : 'Document');
+  }
+
+  // Pulls the [[doc:<docId>|<name>]] markers the agent appends per listed document and strips them
+  // from the visible text, so the chat can render an "Open" button that shows each doc in the panel.
+  private extractChatDocs(reply: string): { clean: string; docs: Array<{ docId: string; name: string }> } {
+    const docs: Array<{ docId: string; name: string }> = [];
+    const seen = new Set<string>();
+    const clean = (reply || '').replace(/\[\[doc:\s*([^|\]]+?)\s*(?:\|\s*([^\]]*?))?\s*\]\]/gi, (_m, id, name) => {
+      const docId = (id || '').trim();
+      if (docId && !seen.has(docId)) {
+        seen.add(docId);
+        docs.push({ docId, name: (name || '').trim() || docId });
+      }
+      return '';
+    });
+    return { clean: clean.replace(/[ \t]+$/gm, '').replace(/\n{3,}/g, '\n\n').trim(), docs };
+  }
+
+  // Opens a document the chatbot listed in the in-panel viewer (same path as a Documents-tab row).
+  openChatDoc(d: { docId: string; name: string }): void {
+    void this.preview({ docId: d.docId, name: d.name });
   }
 
   private scrollChat(): void {
@@ -763,8 +975,6 @@ export class DocumentsView implements OnInit, OnDestroy {
       this.viewerLoading = false;
       this.viewerFallback = true;
       this.viewerError = e?.message || 'Could not open the viewer for this document.';
-    } finally {
-      this.tick();
     }
   }
 
@@ -858,8 +1068,6 @@ export class DocumentsView implements OnInit, OnDestroy {
       this.showActionToast('success', this.translate.instant('actions.downloaded', { name }));
     } catch (e: any) {
       this.showActionToast('error', e?.message || this.translate.instant('actions.downloadError'));
-    } finally {
-      this.tick();
     }
   }
 
@@ -901,7 +1109,6 @@ export class DocumentsView implements OnInit, OnDestroy {
       this.deleteError = e?.message || this.translate.instant('actions.deleteError');
     } finally {
       this.deleting = false;
-      this.tick();
     }
   }
 
@@ -926,8 +1133,9 @@ export class DocumentsView implements OnInit, OnDestroy {
   async loadDocTypes(): Promise<void> {
     this.docTypesLoading = true;
     this.docTypesError = '';
+    this.docTypesBoType = this.context?.businessObjectType || '';
     try {
-      this.docTypes = await this.docSvc.listDocTypes(this.context?.businessObjectType || '');
+      this.docTypes = await this.docSvc.listDocTypes(this.docTypesBoType);
       // With a record in context the list is the few CONFIGURED types, so warm each one's metadata
       // fields in the background — selecting a type (or IDP auto-selecting after classify) is then
       // instant instead of waiting on a per-type solution-config read.
@@ -940,7 +1148,6 @@ export class DocumentsView implements OnInit, OnDestroy {
       this.docTypesError = e?.message || 'Could not load document types.';
     } finally {
       this.docTypesLoading = false;
-      this.tick();
     }
   }
 
@@ -986,9 +1193,6 @@ export class DocumentsView implements OnInit, OnDestroy {
     } catch {
       this.idpConnected = false;
       this.idpPublicHost = false;
-    } finally {
-      // Resolves outside Angular's zone — force a tick so the Auto-classify button enables.
-      this.zone.run(() => this.cdr.detectChanges());
     }
   }
 
@@ -1001,7 +1205,6 @@ export class DocumentsView implements OnInit, OnDestroy {
   }
 
   async onDocTypeChange(): Promise<void> {
-    try {
     const newType = this.selectedDocType.trim();
     const cls = this.selectedUploadName ? this.fileClassifications[this.selectedUploadName] : null;
     const selectedFile = this.selectedUploadName ? this.uploadFiles.find((f) => f.name === this.selectedUploadName) : null;
@@ -1029,7 +1232,7 @@ export class DocumentsView implements OnInit, OnDestroy {
     }
 
     const saved = this.selectedUploadName ? this.uploadMetaSnapshots[this.selectedUploadName]?.[newType] : undefined;
-    if (saved && Object.keys(saved).length) {
+    if (saved) {
       this.applyUploadMetaValues(saved);
       this.uploadStatus = `${file.name} → ${newType}${cls.edited ? ' (edited)' : ''} · restored saved metadata values.`;
       this.uploadError = false;
@@ -1063,18 +1266,140 @@ export class DocumentsView implements OnInit, OnDestroy {
         nextValues[field.id] = field.value;
         filled++;
       }
+      this.rememberUploadMeta(file.name, newType, nextValues);
+      // The user may have moved to another file/type while IDP was reading this one.
+      if (this.selectedUploadName !== file.name || this.selectedDocType !== newType) return;
       this.applyUploadMetaValues(nextValues);
-      if (this.selectedUploadName) {
-        this.rememberUploadMeta(this.selectedUploadName, newType, nextValues);
-      }
       this.uploadStatus = `${file.name} → ${newType}${cls.edited ? ' (edited)' : ''} · ${filled} field(s) filled — review, then Upload.`;
     } catch (e: any) {
       this.uploadStatus = `${file.name} → ${newType}${cls.edited ? ' (edited)' : ''} · metadata fill failed (${e?.message || 'unknown error'})`;
       this.uploadError = false;
     }
-    } finally {
-      this.tick();
+  }
+
+  private isWorkdayContext(ctx: RecordContext | null): boolean {
+    return ctx?.source === 'workday' || ctx?.businessObjectType === 'employee';
+  }
+
+  // A subordinate's Employee ID can render a beat late (prod Workday lazy-renders Job Details and the
+  // detector runs an off-screen probe to hydrate it), so a real worker first looks "not authorised".
+  // Re-check for ~12s; resolve true as soon as the page stops reporting notAuthorized.
+  private async graceRecheckNotAuthorized(token: number): Promise<boolean> {
+    for (let i = 0; i < 20; i++) {
+      await new Promise((r) => setTimeout(r, 600));
+      if (token !== this.loadSeq) return false;
+      const ctx = await this.ctxSvc.getActiveContext();
+      if (token !== this.loadSeq) return false;
+      if (ctx && !ctx.notAuthorized) return true;
+      // The auto-scroll finished and this is a confirmed peer/superior (Manager isn't the signed-in
+      // user) - stop waiting and deny now instead of spinning out the full window.
+      if (ctx && !ctx.probing && ctx.managerName && !this.isAuthorizedForWorker(ctx)) return false;
     }
+    return false;
+  }
+
+  // Full-hierarchy gate: the signed-in user may view a worker only if it's themselves or one of their
+  // reports (the worker's Manager == signed-in user). Workday exposes Employee IDs for superiors too,
+  // so Employee-ID visibility is NOT a grant. Fails open if "self" is unknown (don't block everything).
+  private isAuthorizedForWorker(ctx: RecordContext | null): boolean {
+    const self = this.selfWorker;
+    if (!self || !self.name) return true;
+    // Workday descriptors carry a status suffix (e.g. "Anthony Rizzo1 (On Leave)") that the on-screen
+    // name is stripped of, so drop "(...)" before comparing; also ignore digits ("Rizzo1" vs "Rizzo").
+    const norm = (s?: string | null) =>
+      (s || '').replace(/\([^)]*\)/g, ' ').toLowerCase().replace(/[^a-z0-9]+/g, '');
+    const normNoDigits = (s?: string | null) => norm(s).replace(/\d+/g, '');
+    const same = (a?: string | null, b?: string | null) =>
+      !!norm(a) && !!norm(b) && (norm(a) === norm(b) || normNoDigits(a) === normNoDigits(b));
+    // Your own profile is always allowed.
+    if (ctx?.resolveQuery && self.employeeId && ctx.resolveQuery === self.employeeId) return true;
+    if (same(ctx?.displayName, self.name)) return true;
+    // Otherwise: only workers who report to you (their Manager is you).
+    return same(ctx?.managerName, self.name);
+  }
+
+  // Resolves a Workday worker name / Employee ID to a WID (auto-apply on a unique match, else pick list).
+  private async resolveAndLoadWorker(query: string, token: number): Promise<void> {
+    this.resolving = true;
+    this.resolveStatus = this.translate.instant('documents.worker.finding', { query });
+    try {
+      const result = await this.docSvc.resolveWorker(query);
+      if (token !== this.loadSeq) return;
+      if (result.total === 0) {
+        this.resolveStatus = this.translate.instant('documents.worker.none', { query });
+        return;
+      }
+      if (result.wid) {
+        const match = result.matches.find((m) => m.wid === result.wid) || result.matches[0];
+        await this.applyResolvedWorker(match);
+        return;
+      }
+      this.resolveStatus = this.translate.instant('documents.worker.pick', { count: result.total, query });
+      this.workerMatches = result.matches;
+    } catch (e: any) {
+      this.resolveStatus = this.translate.instant('documents.worker.failed', { detail: e?.message || 'unknown error' });
+    } finally {
+      this.resolving = false;
+    }
+  }
+
+  // Applies a resolved worker as the active record and loads its documents. Used by the auto-match
+  // path and by clicking a row in the pick list.
+  async applyResolvedWorker(match: WorkerMatch): Promise<void> {
+    if (!match.wid) return;
+    this.context = {
+      businessObjectType: 'employee',
+      businessObjectId: match.wid,
+      displayName: match.name || `employee ${match.wid}`,
+      employeeId: match.employeeId || undefined,
+      source: 'workday',
+    };
+    this.workerMatches = [];
+    this.notAuthorized = false;
+    this.resolveStatus = this.translate.instant('documents.worker.loadingDocs', { who: match.name || 'worker' });
+    this.loading = true;
+    this.error = '';
+    try {
+      const { documents, columns } = await this.docSvc.listForContext({
+        businessObjectType: 'employee',
+        businessObjectId: match.wid,
+      });
+      this.documents = documents;
+      this.columns = columns;
+      this.page = 1;
+      this.recompute();
+      void this.loadQueries();
+    } catch (e: any) {
+      this.error = e?.message || 'Could not load documents.';
+    } finally {
+      this.zone.run(() => {
+        this.resolveStatus = '';
+        this.loading = false;
+        this.cdr.detectChanges();
+      });
+    }
+  }
+
+  // Record label shown in the context header. Workday workers show their name + Employee ID
+  // (the opaque 32-hex WID is meaningless to a user); other systems show the plain record id.
+  recordLabel(): string {
+    const c = this.context;
+    if (!c?.businessObjectId) return '';
+    if (c.employeeId) {
+      const name = c.displayName && c.displayName !== c.businessObjectId ? c.displayName.trim() : '';
+      const idPart = this.translate.instant('documents.record.employeeId', { id: c.employeeId });
+      return name ? `${name} \u00b7 ${idPart}` : idPart;
+    }
+    return this.translate.instant('documents.record.id', { id: c.businessObjectId });
+  }
+
+  // One-line summary for a worker match row (Employee ID / title / WID).
+  workerMeta(m: WorkerMatch): string {
+    const bits: string[] = [];
+    if (m.employeeId) bits.push(`ID ${m.employeeId}`);
+    if (m.businessTitle) bits.push(m.businessTitle);
+    if (m.wid) bits.push(`WID ${m.wid}`);
+    return bits.join(' \u00b7 ');
   }
 
   private isWorkdayRecord(): boolean {
@@ -1125,33 +1450,37 @@ export class DocumentsView implements OnInit, OnDestroy {
     if (!this.selectedDocType) return;
 
     const docType = this.selectedDocType;
+    const owner = this.selectedUploadName;
     // No spinner when the fields were already prefetched/cached — they render instantly.
     const cachedNow = this.docTypeFieldsCache[this.docTypeFieldsKey(docType)];
     this.docTypeFieldsLoading = !cachedNow;
     try {
       const fields = await this.ensureDocTypeFields(docType);
       // The user may have switched type/file while this was loading — ignore a stale result.
-      if (this.selectedDocType !== docType) return;
+      if (this.selectedDocType !== docType || this.selectedUploadName !== owner) return;
       this.docTypeFields = fields;
-      if (this.selectedUploadName && this.fileClassifications[this.selectedUploadName]) {
-        const cls = this.fileClassifications[this.selectedUploadName];
+      if (owner && this.fileClassifications[owner]) {
+        const cls = this.fileClassifications[owner];
         const seedType = cls?.docType || this.selectedDocType;
-        const saved = this.uploadMetaSnapshots[this.selectedUploadName]?.[seedType];
-        if (saved && Object.keys(saved).length) {
+        const saved = this.uploadMetaSnapshots[owner]?.[seedType];
+        if (saved) {
           this.applyUploadMetaValues(saved);
+          this.metaValuesFor = owner;
           return;
         }
       }
+      // Keep typed values only when they belong to this same file (never another file's metadata).
+      const carry = this.metaValuesFor === owner;
       const next: Record<string, string> = {};
       for (const field of this.docTypeFields) {
-        next[field.id] = this.docTypeFieldValues[field.id] || '';
+        next[field.id] = carry ? this.docTypeFieldValues[field.id] || '' : '';
       }
       this.docTypeFieldValues = next;
+      this.metaValuesFor = owner;
     } catch (e: any) {
       this.docTypeFieldsError = e?.message || 'Could not load metadata fields.';
     } finally {
       this.docTypeFieldsLoading = false;
-      this.tick();
     }
   }
 
@@ -1192,6 +1521,7 @@ export class DocumentsView implements OnInit, OnDestroy {
         this.selectedUploadName = null;
         this.docTypeFields = [];
         this.docTypeFieldValues = {};
+        this.metaValuesFor = null;
       }
     }
   }
@@ -1207,7 +1537,7 @@ export class DocumentsView implements OnInit, OnDestroy {
     const snapshot = this.selectedUploadName && docType ? this.uploadMetaSnapshots[this.selectedUploadName]?.[docType] : undefined;
     const classifiedValues = this.classifiedUploadMetaValues(cls?.fields);
     let filled = 0;
-    if (snapshot && Object.keys(snapshot).length) {
+    if (snapshot) {
       this.applyUploadMetaValues(snapshot);
       filled = Object.values(snapshot).filter((value) => !!value).length;
     } else if (Object.keys(classifiedValues).length) {
@@ -1227,7 +1557,9 @@ export class DocumentsView implements OnInit, OnDestroy {
       this.uploadStatus = `${file.name} → ${this.selectedDocType}${tag} · ${filled} field(s) filled — review, then Upload.`;
       this.uploadError = false;
     }
-    this.tick();
+    // May run after fetch-based awaits (ensureDocTypeFields) that settle outside Angular's zone, and is
+    // also called programmatically from autoClassify — repaint the selected file's fields/values now.
+    this.zone.run(() => this.cdr.detectChanges());
   }
 
   async autoClassify(): Promise<void> {
@@ -1277,12 +1609,10 @@ export class DocumentsView implements OnInit, OnDestroy {
       this.uploadStatus = `Auto-classify failed: ${e?.message || 'unknown error'}`;
       this.uploadError = true;
     } finally {
-      // The IDP classify resolves outside Angular's zone — force a tick so the badges, status
-      // and cleared spinner render without needing a manual click in the panel.
-      this.zone.run(() => {
-        this.idpBusy = false;
-        this.cdr.detectChanges();
-      });
+      this.idpBusy = false;
+      // classifyWithIdp resolves off Angular's zone (fetch), so repaint the classified state + cleared
+      // spinner now instead of waiting for the next user click.
+      this.zone.run(() => this.cdr.detectChanges());
     }
   }
 
@@ -1305,9 +1635,16 @@ export class DocumentsView implements OnInit, OnDestroy {
   }
 
   private uploadTargetLabel(): string {
-    const type = this.context?.businessObjectType || 'record';
+    const c = this.context;
+    // Workday: show the human Employee ID (and name), never the opaque WID.
+    if (c?.employeeId) {
+      const name = c.displayName && c.displayName !== c.businessObjectId ? c.displayName.trim() : '';
+      const idPart = this.translate.instant('documents.record.employeeId', { id: c.employeeId });
+      return name ? `${name} · ${idPart}` : idPart;
+    }
+    const type = c?.businessObjectType || 'record';
     const prettyType = type ? `${type.charAt(0).toUpperCase()}${type.slice(1)}` : 'Record';
-    return `${prettyType} ${this.context?.businessObjectId || ''}`.trim();
+    return `${prettyType} ${c?.businessObjectId || ''}`.trim();
   }
 
   private metaForFile(file: File): Array<{ name: string; value: string }> {
@@ -1318,6 +1655,8 @@ export class DocumentsView implements OnInit, OnDestroy {
         .filter((field) => field.value && field.importable !== false)
         .map((field) => ({ name: field.id, value: field.value || '' }));
     }
+    // No file picked in the list: the form's values apply to every file being uploaded.
+    if (!this.selectedUploadName) return this.collectUploadMeta();
     return [];
   }
 
@@ -1326,12 +1665,18 @@ export class DocumentsView implements OnInit, OnDestroy {
     this.uploading = true;
     this.uploadStatus = '';
     this.uploadError = false;
+    const countBefore = this.documents.length;
     try {
       const workday = this.isWorkdayRecord();
+      const ctx = this.context!;
       const uploaded: string[] = [];
       const errors: string[] = [];
       const skipped: string[] = [];
 
+      // Build one task per eligible file, then run them with limited concurrency so a batch uploads in
+      // parallel (much faster than one-at-a-time) without flooding the capture broker. Flaky broker
+      // 500s are retried in the BFF, so a little parallelism is safe.
+      const tasks: Array<() => Promise<void>> = [];
       for (const file of this.uploadFiles) {
         const cls = this.fileClassifications[file.name];
         const fileDocType = cls?.docType || this.selectedDocType;
@@ -1345,31 +1690,38 @@ export class DocumentsView implements OnInit, OnDestroy {
         }
 
         const meta = this.metaForFile(file);
-        try {
-          if (workday) {
-            const result = await this.docSvc.capture({
-              businessObjectType: this.context.businessObjectType || 'employee',
-              businessObjectId: this.context.businessObjectId || '',
-              documentTypeId: fileDocType,
-              files: [file],
-              additionalAttributes: meta,
-            });
-            uploaded.push(...result.captured);
-            errors.push(...result.errors);
-          } else {
-            const result = await this.docSvc.upload({
-              businessObjectType: this.context.businessObjectType || '',
-              businessObjectId: this.context.businessObjectId || '',
-              ecmContentTypeName: fileDocType,
-              files: [file],
-              additionalAttributes: meta,
-            });
-            uploaded.push(...result.uploaded);
-            errors.push(...result.errors);
+        tasks.push(async () => {
+          try {
+            if (workday) {
+              const result = await this.docSvc.capture({
+                businessObjectType: ctx.businessObjectType || 'employee',
+                businessObjectId: ctx.businessObjectId || '',
+                documentTypeId: fileDocType,
+                files: [file],
+                additionalAttributes: meta,
+              });
+              uploaded.push(...result.captured);
+              errors.push(...result.errors);
+            } else {
+              const result = await this.docSvc.upload({
+                businessObjectType: ctx.businessObjectType || '',
+                businessObjectId: ctx.businessObjectId || '',
+                ecmContentTypeName: fileDocType,
+                files: [file],
+                additionalAttributes: meta,
+              });
+              uploaded.push(...result.uploaded);
+              errors.push(...result.errors);
+            }
+          } catch (e: any) {
+            errors.push(`${file.name}: ${e?.message || 'upload failed'}`);
           }
-        } catch (e: any) {
-          errors.push(`${file.name}: ${e?.message || 'upload failed'}`);
-        }
+        });
+      }
+
+      const CONCURRENCY = 4;
+      for (let i = 0; i < tasks.length; i += CONCURRENCY) {
+        await Promise.all(tasks.slice(i, i + CONCURRENCY).map((t) => t()));
       }
 
       if (uploaded.length) {
@@ -1392,7 +1744,7 @@ export class DocumentsView implements OnInit, OnDestroy {
         this.docTypeFields = [];
         this.docTypeFieldValues = {};
         this.docTypeFieldsError = '';
-        await this.reload();
+        void this.refreshAfterUpload(countBefore + uploaded.length);
       } else {
         const parts: string[] = [];
         if (skipped.length) parts.push(`Skipped: ${skipped.join(', ')}`);
@@ -1405,7 +1757,36 @@ export class DocumentsView implements OnInit, OnDestroy {
       this.uploadError = true;
     } finally {
       this.uploading = false;
-      this.tick();
+    }
+  }
+
+  // CIC/OnBase search indexing lags the upload, so after the first reload keep polling quietly
+  // (no skeleton) until the list holds the expected number of documents.
+  private async refreshAfterUpload(expected: number): Promise<void> {
+    await this.reload();
+    const ctx = this.context;
+    for (const delay of [2000, 3000, 5000, 8000]) {
+      if (!ctx?.businessObjectId || !ctx.businessObjectType || this.documents.length >= expected) return;
+      await new Promise((r) => setTimeout(r, delay));
+      if (this.context !== ctx) return;
+      const token = this.loadSeq;
+      try {
+        const { documents, columns } = await this.docSvc.listForContext({
+          businessObjectType: ctx.businessObjectType,
+          businessObjectId: ctx.businessObjectId,
+        });
+        if (token !== this.loadSeq || this.context !== ctx) return;
+        if (documents.length > this.documents.length) {
+          this.zone.run(() => {
+            this.documents = documents;
+            this.columns = columns;
+            this.recompute();
+            this.cdr.detectChanges();
+          });
+        }
+      } catch {
+        return;
+      }
     }
   }
 }

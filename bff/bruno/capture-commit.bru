@@ -1,0 +1,46 @@
+meta {
+  name: Capture commit (zero-setup)
+  type: http
+  seq: 2
+}
+
+post {
+  url: https://localhost:5010/api/capture/commit
+  body: json
+  auth: none
+}
+
+headers {
+  Content-Type: application/json
+  X-BFF-Session: {{session}}
+}
+
+body:json {
+  {
+    "attachments": [
+      {
+        "name": "invoice-sample.txt",
+        "mime": "text/plain",
+        "dataBase64": "SU5WT0lDRQ0KDQpWZW5kb3IgTmFtZTogQWNtZSBJbmR1c3RyaWFsIFN1cHBseSBDby4NCkludm9pY2UgIzogSU5WLTIwMjYtMDA0ODIxDQpJbnZvaWNlIERhdGU6IDIwMjYtMTEtMTANCkR1ZSBEYXRlOiAyMDI2LTEyLTEwDQoNCkJpbGwgVG86DQpHbG9iZXggQ29ycG9yYXRpb24NCkFjY291bnQ6IEdsb2JleCBDb3Jwb3JhdGlvbg0KDQpEZXNjcmlwdGlvbiAgICAgICAgICAgICAgICAgICAgIFF0eSAgICAgVW5pdCBQcmljZSAgICAgQW1vdW50DQpTdGVlbCBmYXN0ZW5lcnMgKGJveCkgICAgICAgICAgICA0MCAgICAgICAgMTIuNTAgICAgICAgIDUwMC4wMA0KSHlkcmF1bGljIGhvc2UgYXNzZW1ibHkgICAgICAgICAgIDYgICAgICAgIDg1LjAwICAgICAgICA1MTAuMDANCk9uLXNpdGUgaW5zdGFsbGF0aW9uIGxhYm9yICAgICAgIDEyICAgICAgICA5NS4wMCAgICAgICAxMTQwLjAwDQoNClN1YnRvdGFsOiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAyMTUwLjAwDQpUYXggKDglKTogICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIDE3Mi4wMA0KSW52b2ljZSBUb3RhbDogICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICBVU0QgICAgIDIzMjIuMDANCg0KUmVtaXQgcGF5bWVudCB0byBBY21lIEluZHVzdHJpYWwgU3VwcGx5IENvLiB3aXRoaW4gMzAgZGF5cy4NCg=="
+      }
+    ],
+    "businessObjectType": "account",
+    "businessObjectId": "001gK00001KbuonQAB",
+    "documentTypeId": "205",
+    "recordFieldId": "223",
+    "fields": [
+      { "id": "228", "value": "Acme Industrial Supply Co." },
+      { "id": "229", "value": "INV-2026-004821" },
+      { "id": "227", "value": "2322.00" },
+      { "id": "226", "value": "11/10/2026" }
+    ]
+  }
+}
+
+docs {
+  Zero-setup capture on OnBase9714 (Salesforce). The values stand in for the mapper agent's output.
+  The BFF writes the capture-only config entry (account -> Invoices 205, group looked up automatically),
+  then uploads. Expect { documentId, documentType {id:205, name:Invoices, groupId:116}, configEntry, ... }.
+  Set {{session}} = X-BFF-Session from the signed-in plugin (DevTools > Network > any localhost:5010 call).
+  Afterwards reset the config to default (see repo memory solution-config-backups.md).
+}

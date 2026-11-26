@@ -1,0 +1,42 @@
+{
+  "id": "28d1d6c2-3fad-42e4-8635-3b0798489078",
+  "timestamp": "2026-11-16T09:47:30.4485709+00:00",
+  "results": [
+    {
+      "objectKey": "contents/06a2be36-c97a-4edc-864a-6741ba1643ab/02d12387-4197-48ec-9b3d-3c2c9a4cd899/02d12387-4197-48ec-9b3d-3c2c9a4cd899",
+      "textMetadata": null,
+      "textSummary": {
+        "isSuccess": true,
+        "result": "ServiceNow Change Request CHG0012345 involves upgrading the production database cluster from v12 to v14 through a rolling upgrade. Assigned to Yash Gupta with high priority, scheduled for November 20-21, 2026. Requires CAB approval, includes rollback plan and validation steps.",
+        "error": null
+      },
+      "textClassification": {
+        "isSuccess": true,
+        "result": "change request",
+        "error": null
+      },
+      "namedEntityText": {
+        "isSuccess": true,
+        "result": {
+          "person_names": [
+            "Yash Gupta"
+          ],
+          "dates_times": [
+            "2026-11-20",
+            "2026-11-21"
+          ],
+          "ids_identifiers": [
+            "CHG0012345"
+          ],
+          "custom_entities": [
+            "v12",
+            "v14"
+          ]
+        },
+        "error": null
+      }
+    }
+  ],
+  "status": "SUCCESS",
+  "inProgress": false
+}

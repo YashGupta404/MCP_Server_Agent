@@ -49,11 +49,14 @@
     "https://outlook.cloud.microsoft/*",
     "https://cic-viewer.staging.app.hyland.com/*",
     "https://cic-viewer.dev.app.hyland.com/*",
+    "https://cic-viewer.app.hyland.com/*",
     "https://bravo.cic-viewer.sandbox.app.hyland.com/*",
     "https://auth.iam.staging.experience.hyland.com/*",
     "https://auth.iam.dev.experience.hyland.com/*",
+    "https://auth.iam.experience.hyland.com/*",
     "https://auth.staging.app.hyland.com/*",
-    "https://auth.dev.app.hyland.com/*"
+    "https://auth.dev.app.hyland.com/*",
+    "https://auth.app.hyland.com/*"
   ],
   "declarative_net_request": {
     "rule_resources": [
@@ -92,6 +95,7 @@
       "matches": [
         "https://cic-viewer.staging.app.hyland.com/*",
         "https://cic-viewer.dev.app.hyland.com/*",
+        "https://cic-viewer.app.hyland.com/*",
         "https://bravo.cic-viewer.sandbox.app.hyland.com/*"
       ],
       "js": ["src/content/viewer-storage.js"],

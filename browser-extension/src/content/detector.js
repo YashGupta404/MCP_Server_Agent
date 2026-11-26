@@ -59,19 +59,62 @@
     return null;
   }
 
-  // ServiceNow: .../<table>.do?sys_id=<guid>  or  /now/nav/ui/.../<table>/<sys_id>
-  function detectServiceNow(loc) {
-    const params = new URLSearchParams(loc.search);
-    const sysId = params.get("sys_id");
-    const doMatch = loc.pathname.match(/\/([a-z_]+)\.do$/i);
-    if (sysId && doMatch) {
-      return { rawType: doMatch[1], businessObjectId: sysId, displayName: document.title.trim() };
+  // ServiceNow: scope by the human record NUMBER (e.g. CHG0040019), because the solution config maps
+  // boContext.boProp = "number" (not sys_id). The classic form exposes it as a hidden input
+  // `sys_original.<table>.number` whose id also encodes the table. It can render in a nested same-origin
+  // iframe (the Next Experience "classic" shell), so search this document and its child frames.
+  function findServiceNowNumberInput(doc) {
+    try {
+      const el = doc.querySelector('input[id^="sys_original."][id$=".number"]');
+      if (el && el.value) return el;
+    } catch {
+      return null; // cross-origin frame — skip
     }
-    const navMatch = loc.href.match(/\/([a-z_]+)\/([0-9a-f]{32})(?:[/?#]|$)/i);
-    if (navMatch) {
-      return { rawType: navMatch[1], businessObjectId: navMatch[2], displayName: document.title.trim() };
+    const frames = doc.querySelectorAll ? doc.querySelectorAll("iframe") : [];
+    for (const f of frames) {
+      let childDoc = null;
+      try {
+        childDoc = f.contentDocument;
+      } catch {
+        childDoc = null;
+      }
+      if (childDoc) {
+        const found = findServiceNowNumberInput(childDoc);
+        if (found) return found;
+      }
     }
     return null;
+  }
+
+  function detectServiceNow() {
+    // ServiceNow Next Experience renders the classic record form in an <iframe> that is nested INSIDE an
+    // open shadow root (web components). Neither document.querySelectorAll("iframe") nor window.frames can
+    // cross a shadow boundary, so we walk the tree explicitly: at each document/shadow-root, look for the
+    // hidden input, then descend into (a) every element's shadowRoot and (b) every same-origin iframe's
+    // contentDocument. This reaches the `sys_original.<table>.number` input wherever ServiceNow buries it.
+    let shadows = 0, iframes = 0;
+    function search(root) {
+      let el = null;
+      try { el = root.querySelector('input[id^="sys_original."][id$=".number"]'); } catch { /* ignore */ }
+      if (el && el.value) return el;
+      let all;
+      try { all = root.querySelectorAll("*"); } catch { return null; }
+      for (const node of all) {
+        if (node.tagName === "IFRAME") {
+          let cd = null;
+          try { cd = node.contentDocument; } catch { cd = null; }  // cross-origin -> null
+          if (cd) { iframes++; const r = search(cd); if (r) return r; }
+        }
+        if (node.shadowRoot) { shadows++; const r = search(node.shadowRoot); if (r) return r; }
+      }
+      return null;
+    }
+    const input = search(document);
+    try { console.log("[UCEB-SN]", input ? ("FOUND " + input.id + "=" + input.value) : "NOTFOUND", `shadows=${shadows} iframes=${iframes}`); } catch { /* ignore */ }
+    if (!input) return null;
+    const m = input.id.match(/^sys_original\.([a-z_]+)\.number$/i);
+    if (!m) return null;
+    return { rawType: m[1], businessObjectId: input.value.trim(), displayName: document.title.trim() };
   }
 
   // Workday: the Hyland "Employee Documents" experience embeds the worker's UCEB WID (a 32-hex id)
@@ -102,61 +145,78 @@
     return detectWorkerProfile();
   }
 
-  // Workday lazy-renders the "Job Details" section (which holds the Employee ID) only once it's near the
-  // viewport, so on first load a real subordinate looks like "no Employee ID -> not authorised". This
-  // probe forces that section to hydrate WITHOUT a visible scroll, then re-publishes so the panel can
-  // resolve the worker. It uses two invisible techniques (no viewport jump the user can see):
-  //   (1) temporarily force `content-visibility:auto` sections to render via an injected stylesheet;
-  //   (2) for scroll-handler lazy loaders, jump scrollTop to the bottom, fire the handler synchronously,
-  //       then restore scrollTop in the SAME task so the browser never paints the bottom position.
-  // Runs at most once per worker URL.
-  let empIdProbeUrl = null;
+  const EMP_ID_PROBE_BUDGET = 1;   // one auto-scroll pass per page view (resets on nav + explicit reprobe)
+  let navSeq = 0;                  // bumped on every SPA navigation (incl. back/forward)
+  let empIdProbeBudget = EMP_ID_PROBE_BUDGET;
+  let lastEmpIdProbeAt = 0;
+  let probing = false;             // in-flight guard: never start a second scroll while one is running
   const hasEmployeeIdInDom = () =>
     /\bEmployee ID\b\s*[:#\-]?\s*[0-9]{3,}/i.test((document.body && document.body.innerText) || "");
+  const hasManagerInDom = () => !!scrapeManagerName();
+  // The profile is fully hydrated for an authorisation decision once BOTH the Employee ID (Job Details)
+  // and the Manager field are in the DOM — they lazy-render at different scroll depths.
+  const profileHydrated = () => hasEmployeeIdInDom() && hasManagerInDom();
 
+  // Workday lazy-renders the "Job Details" (Employee ID) and the "Manager" field only once each is near
+  // the viewport. This probe walks the WHOLE page DOWN in real steps so both sections render, then
+  // returns to the original position. We must hydrate both before deciding access: the Employee ID
+  // identifies the worker and the Manager is the authorisation signal (report-of-signed-in-user).
   async function probeForEmployeeId() {
-    if (hasEmployeeIdInDom()) return;
+    if (probing || profileHydrated()) return;
+    probing = true;
 
-    // (1) Force content-visibility / contain-based lazy sections to render — no scrolling involved.
+    // Force content-visibility / contain-based lazy sections to render.
     const style = document.createElement("style");
     style.setAttribute("data-uceb-probe", "1");
     style.textContent = "*{content-visibility:visible !important;contain-intrinsic-size:auto !important;}";
     (document.head || document.documentElement).appendChild(style);
 
-    // (2) Collect the window plus any inner scroll containers tall enough to hide the Job Details section.
-    const scrollers = [document.scrollingElement || document.documentElement];
+    // Pick the element that actually scrolls the page: the window, or the tallest inner scroll container.
+    let scroller = document.scrollingElement || document.documentElement;
     try {
+      let bestH = scroller.scrollHeight - scroller.clientHeight;
       document.querySelectorAll("*").forEach((el) => {
         const s = getComputedStyle(el);
-        if ((s.overflowY === "auto" || s.overflowY === "scroll") && el.scrollHeight - el.clientHeight > 200) {
-          scrollers.push(el);
-        }
+        const h = el.scrollHeight - el.clientHeight;
+        if ((s.overflowY === "auto" || s.overflowY === "scroll") && h > bestH) { scroller = el; bestH = h; }
       });
     } catch {
       /* getComputedStyle can throw on detached nodes; ignore */
     }
-    const saved = scrollers.map((el) => el.scrollTop);
+
+    const saved = scroller.scrollTop;
     try {
-      for (let pass = 0; pass < 3; pass++) {
-        // Jump to the bottom and fire scroll handlers synchronously, then restore before the next paint.
-        for (const el of scrollers) {
-          el.scrollTop = el.scrollHeight;
-          el.dispatchEvent(new Event("scroll", { bubbles: true }));
-        }
+      const step = Math.max(400, (scroller.clientHeight || 600) * 0.9);
+      for (let y = step; y < scroller.scrollHeight + step; y += step) {
+        scroller.scrollTop = y;                                   // real scroll -> IntersectionObserver fires
+        scroller.dispatchEvent(new Event("scroll", { bubbles: true }));
         window.dispatchEvent(new Event("scroll"));
-        scrollers.forEach((el, i) => { el.scrollTop = saved[i]; }); // restore in-task -> nothing paints
-        await new Promise((r) => setTimeout(r, 300)); // let any triggered async render complete
-        if (hasEmployeeIdInDom()) break;
+        await new Promise((r) => setTimeout(r, 250));             // let the lazy section render
+        if (profileHydrated()) break;                            // stop once BOTH id + manager are in
+        if (y >= scroller.scrollHeight - scroller.clientHeight) break;
       }
     } finally {
-      scrollers.forEach((el, i) => { el.scrollTop = saved[i]; });
+      scroller.scrollTop = saved;                                // return to where the user was
       style.remove();
+      probing = false;
     }
-    publish(true); // re-detect: the Employee ID may now be present -> needsResolve -> docs load
+    publish(true); // re-detect: id + manager may now be present -> resolve + authorise -> docs load
   }
+
 
   // Reads the worker's identity off a Workday worker page. Prefers the Employee ID (shown on the Job
   // Details tab, e.g. "Employee ID 21021") because it resolves to exactly one worker; otherwise falls
+  // The target worker's Manager (from the profile's "Manager" field). This is the real authorisation
+  // signal: the signed-in user may view a worker only if they are that worker's manager (their report).
+  // Workday shows Employee IDs for superiors too, so Employee-ID visibility alone is NOT authorisation.
+  function scrapeManagerName() {
+    const bodyText = (document.body && document.body.innerText) || "";
+    // "Manager" label, then the manager's full name on the same or next line. \bManager\b won't match
+    // "Management Level". Capture up to 4 capitalised name tokens (allow a trailing digit, e.g. "Rizzo1").
+    const m = bodyText.match(/\bManager\b\s*[:#\-]?\s*\n?\s*([A-Z][A-Za-z.'\u2019-]+(?:\s+[A-Z][A-Za-z0-9.'\u2019-]+){1,3})/);
+    return m ? m[1].replace(/\s+/g, " ").trim() : "";
+  }
+
   // back to the worker's name from the profile/sidebar header. Returns a `needsResolve` marker (no
   // businessObjectId yet) — the popup calls the BFF /api/worker/resolve to turn it into the WID.
   function detectWorkerProfile() {
@@ -179,11 +239,11 @@
       const t = el && el.textContent ? el.textContent.trim() : "";
       if (t) { name = t; break; }
     }
-    // 2b) Fallback: Workday sets the tab title to "<Name> - View Worker" on a single worker's profile.
-    //     Match ONLY "View Worker" — NOT "View Team"/org-chart pages, which have no single worker and
-    //     would otherwise produce a bogus "not authorised" for a made-up name.
+    // 2b) Fallback: Workday sets the tab title to "<Name> - View Worker" (WCP preview and some builds
+    //     expose different automation-ids, so the title is the reliable signal). Take the leading
+    //     segment before the " - " / " | " separator; the org-chart/team guard below filters bad names.
     if (!name) {
-      const m = (document.title || "").match(/^(.+?)\s*[-–|]\s*View Worker\b/i);
+      const m = (document.title || "").trim().match(/^(.+?)\s+[-\u2013|]\s+\S/);
       if (m) name = m[1].trim();
     }
     name = name.replace(/\s*\([^)]*\)\s*/g, " ").replace(/\s+/g, " ").trim();
@@ -196,20 +256,25 @@
       return null;
     }
 
-    // The Employee ID is only shown for workers you're authorised to see (your subordinates). When it's
-    // present, resolve the WID and show their documents. When it's absent (a peer or your own manager),
-    // surface just the NAME so the panel can say you're not authorised — do NOT try to resolve them.
+    // Authorisation needs BOTH the Employee ID (identifies the worker) and the Manager (the access
+    // signal). Both lazy-render below the fold, so on first load scroll the whole profile to hydrate
+    // them and hold a "probing" state until the scroll finishes — never decide on a half-rendered page.
+    const managerName = scrapeManagerName();
+    if (name && !profileHydrated() && empIdProbeBudget > 0 && Date.now() - lastEmpIdProbeAt > 1000 && !probing) {
+      empIdProbeBudget--;
+      lastEmpIdProbeAt = Date.now();
+      probeForEmployeeId();
+    }
+    // While the auto-scroll is in flight, tell the panel to hold a loading state regardless of what's
+    // rendered so far (the Employee ID may appear before the Manager does).
+    if (probing && name) {
+      return { rawType: "employee", notAuthorized: true, probing: true, displayName: name || `Employee ${employeeId}`, managerName };
+    }
     if (employeeId) {
-      return { rawType: "employee", needsResolve: true, resolveQuery: employeeId, displayName: name || `Employee ${employeeId}` };
+      return { rawType: "employee", needsResolve: true, resolveQuery: employeeId, displayName: name || `Employee ${employeeId}`, managerName };
     }
     if (name) {
-      // No Employee ID in the DOM yet. It may just be lazy-rendered below the fold, so force that
-      // section to hydrate (once per URL) before the panel commits to the 403.
-      if (empIdProbeUrl !== location.href) {
-        empIdProbeUrl = location.href;
-        probeForEmployeeId();
-      }
-      return { rawType: "employee", notAuthorized: true, displayName: name };
+      return { rawType: "employee", notAuthorized: true, displayName: name, managerName };
     }
     return null;
   }
@@ -269,6 +334,7 @@
         needsResolve: true,
         resolveQuery: raw.resolveQuery,
         displayName: raw.displayName || raw.resolveQuery,
+        managerName: raw.managerName || "",
         source: host,
         url: loc.href,
       };
@@ -280,7 +346,11 @@
       return {
         businessObjectType,
         notAuthorized: true,
+        // While the off-screen auto-scroll is still running, a lazy Employee ID may yet appear, so the
+        // panel must hold a loading state (not the 403) until this clears.
+        probing: probing || undefined,
         displayName: raw.displayName || "this employee",
+        managerName: raw.managerName || "",
         source: host,
         url: loc.href,
       };
@@ -317,6 +387,7 @@
   function publish(force = false) {
     const ctx = detect();
     const key = contextKey(ctx);
+    try { console.log("[UCEB-DETECT]", location.hostname, "=>", key, JSON.stringify(ctx)); } catch { /* ignore */ }
     if (!force && key === lastKey) return;
     lastKey = key;
     try {
@@ -332,6 +403,19 @@
       sendResponse({ context: detect() });
       return true;
     }
+    // Panel Refresh / navigation: reset the probe budget and kick an immediate auto-scroll so a
+    // lazy-rendered Employee ID gets hydrated again (no-op if it's already in the DOM).
+    if (msg?.type === "UCEB_REPROBE") {
+      // Don't re-arm or kick a second scroll while one is already in-flight — the running pass will
+      // hydrate the Employee ID (or confirm it's absent) on its own. Only re-arm once it's idle.
+      if (!probing) {
+        empIdProbeBudget = EMP_ID_PROBE_BUDGET;
+        lastEmpIdProbeAt = Date.now();
+        probeForEmployeeId();
+      }
+      sendResponse({ ok: true });
+      return true;
+    }
     return undefined;
   });
 
@@ -345,23 +429,64 @@
     debounceTimer = setTimeout(() => publish(false), 350);
   }
 
+  // A real SPA navigation (incl. browser Back/Forward) bumps navSeq so the Employee-ID probe re-runs
+  // for the new page view; MutationObserver churn does NOT bump it (no repeated auto-scrolling).
+  const onNavigate = () => { navSeq++; empIdProbeBudget = EMP_ID_PROBE_BUDGET; schedulePublish(); startServiceNowWatch(lastKey); };
   const wrap = (fnName) => {
     const original = history[fnName];
     history[fnName] = function (...args) {
       const result = original.apply(this, args);
-      schedulePublish();
+      onNavigate();
       return result;
     };
   };
   wrap("pushState");
   wrap("replaceState");
-  window.addEventListener("popstate", schedulePublish);
-  window.addEventListener("hashchange", schedulePublish);
+  window.addEventListener("popstate", onNavigate);
+  window.addEventListener("hashchange", onNavigate);
+
+  // The history wrappers above run in the content script's isolated world, so the PAGE's own
+  // pushState/replaceState calls never reach them. Watch the URL itself to catch SPA navigation.
+  let lastHref = location.href;
+  setInterval(() => {
+    if (location.href !== lastHref) {
+      lastHref = location.href;
+      onNavigate();
+    }
+  }, 700);
 
   // Fallback: some frameworks swap record content without touching the URL.
   const observer = new MutationObserver(() => schedulePublish());
   observer.observe(document.documentElement, { childList: true, subtree: true });
 
-  // Initial publish once the page settles.
+  // ServiceNow renders the record form INSIDE a child iframe that loads AFTER this script; its internal
+  // mutations are invisible to the top-document observer, so neither the initial publish nor the observer
+  // sees the `sys_original.<table>.number` input. Re-detect when any child iframe finishes loading, plus a
+  // short polling fallback, until a record is found. Re-armed on SPA navigation.
+  let snPoll = null;
+  function watchChildFrames() {
+    for (const f of document.querySelectorAll("iframe")) {
+      if (f.__ucebWatched) continue;
+      f.__ucebWatched = true;
+      try { f.addEventListener("load", () => schedulePublish()); } catch { /* ignore */ }
+    }
+  }
+  // After a navigation the nested form can still show the OLD record for a moment, so keep polling until
+  // the detected record differs from the one before the navigation (or the budget runs out).
+  function startServiceNowWatch(prevKey = null) {
+    if (!/\.service-now\.com$/.test(location.hostname)) return;
+    if (snPoll) clearInterval(snPoll);
+    let tries = 0;
+    snPoll = setInterval(() => {
+      tries++;
+      watchChildFrames();
+      publish(false);
+      const changed = lastKey && lastKey !== "none" && lastKey !== prevKey;
+      if (changed || tries >= 60) { clearInterval(snPoll); snPoll = null; }
+    }, 600);
+  }
+
+  // Initial publish once the page settles, then watch for the late-loading ServiceNow form.
   publish(true);
+  startServiceNowWatch();
 })();

@@ -1,0 +1,2119 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Data Curation API",
+    "description": "Transform unstructured content into AI-ready structured data. Supports text extraction, chunking, embedding generation, and PII handling.",
+    "version": "0.1.0"
+  },
+  "paths": {
+    "/config/options": {
+      "get": {
+        "tags": [
+          "config"
+        ],
+        "summary": "Get Environment Configuration",
+        "description": "Retrieve the complete configuration for the environment including defaults, rules, and metadata.",
+        "operationId": "GetConfig",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "headers": {
+              "ETag": {
+                "description": "Entity tag of the stored configuration. Send it back in the If-Match header of PUT /config/options/defaults to detect concurrent modifications.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConfigResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Configuration not found for this environment",
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": "not_found",
+                  "message": "Configuration not found for environment. Use POST /config/options to initialize."
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Corrupted configuration or storage error",
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": "corrupted_config",
+                  "message": "Configuration document is missing required fields"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Config endpoints disabled or S3 service unavailable (throttling/timeouts)",
+            "content": {
+              "application/json": {
+                "examples": {
+                  "endpoints_disabled": {
+                    "summary": "Endpoints disabled",
+                    "value": {
+                      "error": "service_unavailable",
+                      "message": "Config endpoints are not available"
+                    }
+                  },
+                  "s3_throttled": {
+                    "summary": "S3 throttling/timeout",
+                    "value": {
+                      "error": "service_unavailable",
+                      "message": "Storage service temporarily unavailable, please retry"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      },
+      "post": {
+        "tags": [
+          "config"
+        ],
+        "summary": "Initialize Environment Configuration",
+        "description": "Initialize a new environment configuration with system defaults. Creates the config document in S3 with empty rules array and metadata.",
+        "operationId": "InitializeConfig",
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConfigResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Validation failure \u2014 e.g. the configuration exceeds the maximum allowed size, or specifies a non-whitelisted image embedding model.",
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": "validation_error",
+                  "message": "Config size (51201 bytes) exceeds maximum allowed size (51200 bytes)."
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Configuration already exists for this environment",
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": "conflict",
+                  "message": "Configuration already exists for this environment."
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Storage error or internal server error",
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": "storage_error",
+                  "message": "Failed to create configuration"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Service unavailable (endpoints disabled or storage temporarily unavailable)",
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": "service_unavailable",
+                  "message": "Config endpoints are not available"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
+    "/config/options/defaults": {
+      "put": {
+        "tags": [
+          "config"
+        ],
+        "summary": "Update Environment Configuration Defaults",
+        "description": "Replace the entire defaults object with new values. The rules array is preserved unchanged. The response carries the new configuration ETag; send it back in `If-Match` on the next update to detect concurrent modifications.",
+        "operationId": "UpdateConfigDefaults",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "If-Match",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "ETag of the configuration the update is based on, as returned by a previous GET or PUT. The update is rejected with 412 if the stored configuration has since changed. Omit to skip the client-side precondition; the write itself is always conditional on the configuration read by this request.",
+              "title": "If-Match"
+            },
+            "description": "ETag of the configuration the update is based on, as returned by a previous GET or PUT. The update is rejected with 412 if the stored configuration has since changed. Omit to skip the client-side precondition; the write itself is always conditional on the configuration read by this request."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SubmitOptions"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConfigResponse"
+                }
+              }
+            },
+            "headers": {
+              "ETag": {
+                "description": "Entity tag of the stored configuration. Send it back in the If-Match header of PUT /config/options/defaults to detect concurrent modifications.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Request body validation failure or config size exceeded",
+            "content": {
+              "application/json": {
+                "examples": {
+                  "validation_error": {
+                    "summary": "Validation error",
+                    "value": {
+                      "message": "Input should be a valid integer"
+                    }
+                  },
+                  "size_exceeded": {
+                    "summary": "Config size exceeds 50KB limit",
+                    "value": {
+                      "error": "validation_error",
+                      "message": "Config size (51201 bytes) exceeds maximum allowed size (51200 bytes)."
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Configuration not found for environment",
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": "not_found",
+                  "message": "Configuration not found for environment. Use POST /config/options to initialize."
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Configuration was modified by a concurrent write after it was read",
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": "conflict",
+                  "message": "Configuration was modified by another request. Re-read the configuration and retry the update."
+                }
+              }
+            }
+          },
+          "412": {
+            "description": "The supplied If-Match ETag does not match the stored configuration",
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": "precondition_failed",
+                  "message": "The If-Match header does not match the current configuration. Re-read the configuration to obtain its current ETag and retry."
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Storage error or internal server error",
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": "storage_error",
+                  "message": "Failed to update defaults"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Service unavailable (storage temporarily unavailable)",
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": "service_unavailable",
+                  "message": "Storage service temporarily unavailable, please retry"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "config"
+        ],
+        "summary": "Reset Environment Configuration Defaults",
+        "description": "Reset defaults to system defaults. Removes environment customizations while preserving the rules array.",
+        "operationId": "ResetConfigDefaults",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConfigResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Validation failure \u2014 e.g. the configuration exceeds the maximum allowed size, or specifies a non-whitelisted image embedding model.",
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": "validation_error",
+                  "message": "Config size (51201 bytes) exceeds maximum allowed size (51200 bytes)."
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Configuration not found for environment",
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": "not_found",
+                  "message": "Configuration not found for environment. Use POST /config/options to initialize."
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Storage error or internal server error",
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": "storage_error",
+                  "message": "Failed to reset defaults"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Service unavailable (storage temporarily unavailable)",
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": "service_unavailable",
+                  "message": "Storage service temporarily unavailable, please retry"
+                }
+              }
+            }
+          }
+        }
+      },
+      "get": {
+        "tags": [
+          "config"
+        ],
+        "summary": "Get Environment Configuration Defaults",
+        "description": "Retrieve only the defaults section of the environment configuration.",
+        "operationId": "GetConfigDefaults",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConfigResponse"
+                }
+              }
+            },
+            "headers": {
+              "ETag": {
+                "description": "Entity tag of the stored configuration. Send it back in the If-Match header of PUT /config/options/defaults to detect concurrent modifications.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Configuration not found for this environment",
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": "not_found",
+                  "message": "Configuration not found for environment. Use POST /config/options to initialize."
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Corrupted configuration or storage error",
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": "corrupted_config",
+                  "message": "Configuration document is missing required 'defaults' field"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Config endpoints disabled or S3 service unavailable (throttling/timeouts)",
+            "content": {
+              "application/json": {
+                "examples": {
+                  "endpoints_disabled": {
+                    "summary": "Endpoints disabled",
+                    "value": {
+                      "error": "service_unavailable",
+                      "message": "Config endpoints are not available"
+                    }
+                  },
+                  "s3_throttled": {
+                    "summary": "S3 throttling/timeout",
+                    "value": {
+                      "error": "service_unavailable",
+                      "message": "Storage service temporarily unavailable, please retry"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/config/options/rules": {
+      "get": {
+        "tags": [
+          "config"
+        ],
+        "summary": "Get Configuration Rules",
+        "description": "Retrieve the rules collection for the environment configuration. Returns empty array if no rules configured.",
+        "operationId": "GetConfigRules",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConfigResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Configuration not found for this environment",
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": "not_found",
+                  "message": "Configuration not found for environment. Use POST /config/options to initialize."
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Corrupted configuration or storage error",
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": "corrupted_config",
+                  "message": "Configuration document is missing required 'rules' field"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Config endpoints disabled or S3 service unavailable (throttling/timeouts)",
+            "content": {
+              "application/json": {
+                "examples": {
+                  "endpoints_disabled": {
+                    "summary": "Endpoints disabled",
+                    "value": {
+                      "error": "service_unavailable",
+                      "message": "Config endpoints are not available"
+                    }
+                  },
+                  "s3_throttled": {
+                    "summary": "S3 throttling/timeout",
+                    "value": {
+                      "error": "service_unavailable",
+                      "message": "Storage service temporarily unavailable, please retry"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      },
+      "post": {
+        "tags": [
+          "config"
+        ],
+        "summary": "Create Configuration Rule",
+        "description": "Add a new rule to the rules array. Server generates a UUID for rule_id. Returns 409 if a rule with identical conditions already exists.",
+        "operationId": "CreateConfigRule",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RuleInput"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RuleCreateResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Request body validation failure, config validation failure, or config size exceeded",
+            "content": {
+              "application/json": {
+                "examples": {
+                  "request_validation": {
+                    "summary": "Pydantic request validation error",
+                    "value": {
+                      "message": "Input should be a valid integer"
+                    }
+                  },
+                  "config_validation": {
+                    "summary": "SubmitOptions config validation error",
+                    "value": {
+                      "error": "validation_error",
+                      "message": "Rule config validation failed",
+                      "details": [
+                        {
+                          "type": "int_parsing",
+                          "loc": [
+                            "chunk_size"
+                          ],
+                          "msg": "Input should be a valid integer",
+                          "input": "not-a-number"
+                        }
+                      ]
+                    }
+                  },
+                  "size_exceeded": {
+                    "summary": "Config size exceeds 50KB limit",
+                    "value": {
+                      "error": "validation_error",
+                      "message": "Config size (51201 bytes) exceeds maximum allowed size (51200 bytes)."
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Configuration not found for environment",
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": "not_found",
+                  "message": "Configuration not found for environment. Use POST /config/options to initialize."
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Rule with identical conditions already exists",
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": "conflict",
+                  "message": "A rule with identical conditions already exists."
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Storage error or internal server error",
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": "storage_error",
+                  "message": "Failed to create rule"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Service unavailable (storage temporarily unavailable)",
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": "service_unavailable",
+                  "message": "Storage service temporarily unavailable, please retry"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
+    "/config/options/rules/{rule_id}": {
+      "put": {
+        "tags": [
+          "config"
+        ],
+        "summary": "Update Configuration Rule",
+        "description": "Replace the rule object at the specified rule_id with new values.",
+        "operationId": "UpdateConfigRule",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "rule_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Rule Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RuleInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RuleCreateResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Request body validation failure, config validation failure, or config size exceeded",
+            "content": {
+              "application/json": {
+                "examples": {
+                  "config_validation": {
+                    "summary": "SubmitOptions config validation error",
+                    "value": {
+                      "error": "validation_error",
+                      "message": "Rule config validation failed",
+                      "details": [
+                        {
+                          "type": "int_parsing",
+                          "loc": [
+                            "chunk_size"
+                          ],
+                          "msg": "Input should be a valid integer",
+                          "input": "not-a-number"
+                        }
+                      ]
+                    }
+                  },
+                  "size_exceeded": {
+                    "summary": "Config size exceeds 50KB limit",
+                    "value": {
+                      "error": "validation_error",
+                      "message": "Config size (51201 bytes) exceeds maximum allowed size (51200 bytes)."
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Configuration or rule not found",
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": "not_found",
+                  "message": "Rule not found: <rule_id>"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Rule with identical conditions already exists",
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": "conflict",
+                  "message": "A rule with identical conditions already exists.",
+                  "existingRuleId": "<existing_rule_id>"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Storage error or internal server error",
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": "storage_error",
+                  "message": "Failed to update rule"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Service unavailable (storage temporarily unavailable)",
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": "service_unavailable",
+                  "message": "Storage service temporarily unavailable, please retry"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "config"
+        ],
+        "summary": "Delete Configuration Rule",
+        "description": "Remove the rule with the specified rule_id from the rules array.",
+        "operationId": "DeleteConfigRule",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "rule_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Rule Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConfigResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Validation failure \u2014 e.g. the configuration exceeds the maximum allowed size, or specifies a non-whitelisted image embedding model.",
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": "validation_error",
+                  "message": "Config size (51201 bytes) exceeds maximum allowed size (51200 bytes)."
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Configuration or rule not found",
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": "not_found",
+                  "message": "Rule not found: <rule_id>"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Storage error or internal server error",
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": "storage_error",
+                  "message": "Failed to delete rule"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Service unavailable (storage temporarily unavailable)",
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": "service_unavailable",
+                  "message": "Storage service temporarily unavailable, please retry"
+                }
+              }
+            }
+          }
+        }
+      },
+      "get": {
+        "tags": [
+          "config"
+        ],
+        "summary": "Get Configuration Rule",
+        "description": "Retrieve a single configuration rule by its UUID.",
+        "operationId": "GetConfigRule",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "rule_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Rule Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SingleRuleResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid rule ID format",
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": "invalid_rule_id",
+                  "message": "Invalid rule ID format: must be a valid UUID"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Configuration or rule not found",
+            "content": {
+              "application/json": {
+                "examples": {
+                  "config_not_found": {
+                    "value": {
+                      "error": "not_found",
+                      "message": "Configuration not found for environment. Use POST /config/options to initialize."
+                    }
+                  },
+                  "rule_not_found": {
+                    "value": {
+                      "error": "rule_not_found",
+                      "message": "Rule not found with id: 550e8400-e29b-41d4-a716-446655440001"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Corrupted configuration or storage error",
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": "corrupted_config",
+                  "message": "Configuration document is missing required 'rules' field"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Config endpoints disabled or S3 service unavailable (throttling/timeouts)",
+            "content": {
+              "application/json": {
+                "examples": {
+                  "endpoints_disabled": {
+                    "summary": "Endpoints disabled",
+                    "value": {
+                      "error": "service_unavailable",
+                      "message": "Config endpoints are not available"
+                    }
+                  },
+                  "s3_throttled": {
+                    "summary": "S3 throttling/timeout",
+                    "value": {
+                      "error": "service_unavailable",
+                      "message": "Storage service temporarily unavailable, please retry"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/config/options/rules/test": {
+      "post": {
+        "tags": [
+          "config"
+        ],
+        "summary": "Test Rule Matching",
+        "description": "Test document properties against environment rules (dry run). Evaluates the given properties and returns which rule would match, along with the effective merged configuration. No state is modified.",
+        "operationId": "TestRuleMatching",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "additionalProperties": true,
+                "type": "object",
+                "title": "Body"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MatchResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Configuration not found for environment",
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": "not_found",
+                  "message": "Configuration not found for environment. Use POST /config/options to initialize."
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal server error (invalid stored configuration)",
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": "storage_error",
+                  "message": "Error loading configuration. It contains invalid data and may be malformed. Please delete and recreate it."
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Service unavailable (storage temporarily unavailable)",
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": "service_unavailable",
+                  "message": "Storage service temporarily unavailable, please retry"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
+    "/health": {
+      "get": {
+        "tags": [
+          "health"
+        ],
+        "summary": "Health Check",
+        "description": "Lightweight liveness probe. No authentication required.",
+        "operationId": "HealthCheck",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object",
+                  "title": "Response Healthcheck"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/health/ready": {
+      "get": {
+        "tags": [
+          "health"
+        ],
+        "summary": "Readiness Check",
+        "description": "Readiness probe. No authentication required. Answers 503 until the service can do its work (for the workflow host: the workflow runtime is connected and the upload listener is running), and whenever the liveness check fails.",
+        "operationId": "ReadinessCheck",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object",
+                  "title": "Response Readinesscheck"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/health/details": {
+      "get": {
+        "tags": [
+          "health"
+        ],
+        "summary": "Health Check Details",
+        "description": "Authenticated endpoint returning detailed application and system stats including uptime, memory, CPU, disk, and AWS session status.",
+        "operationId": "HealthCheckDetails",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object",
+                  "title": "Response Healthcheckdetails"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
+    "/presign": {
+      "post": {
+        "tags": [
+          "pipeline"
+        ],
+        "summary": "Generate Presigned URLs",
+        "description": "Entrypoint for ad hoc data curation pipeline. Generate presigned S3 URLs to upload a file and retrieve job results.",
+        "operationId": "Presign",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "anyOf": [
+                  {
+                    "$ref": "#/components/schemas/SubmitOptions"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Body"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PresignResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Validation error in submit options"
+          },
+          "500": {
+            "description": "Failed to generate presigned URLs"
+          },
+          "503": {
+            "description": "Pipeline endpoints are not available"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
+    "/status/{job_id}": {
+      "get": {
+        "tags": [
+          "pipeline"
+        ],
+        "summary": "Get Job Status",
+        "description": "Retrieve the status of a data curation job by job ID.",
+        "operationId": "GetStatus",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "job_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Job Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StatusResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Job not found"
+          },
+          "500": {
+            "description": "Error getting status"
+          },
+          "503": {
+            "description": "Pipeline endpoints are not available"
+          }
+        }
+      }
+    },
+    "/models": {
+      "get": {
+        "tags": [
+          "pipeline"
+        ],
+        "summary": "Get Supported Embedding Models",
+        "description": "Retrieve list of supported embedding models with their valid configuration settings.",
+        "operationId": "GetModels",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EmbeddingsResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Pipeline endpoints are not available"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "ConfigResponse": {
+        "properties": {
+          "environmentId": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Environmentid",
+            "description": "Environment UUID"
+          },
+          "effectiveConfig": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Effectiveconfig",
+            "description": "Environment configuration (may contain defaults, rules, or both depending on endpoint)"
+          },
+          "lastModified": {
+            "type": "string",
+            "title": "Lastmodified",
+            "description": "ISO-8601 timestamp of last modification"
+          },
+          "modifiedBy": {
+            "type": "string",
+            "title": "Modifiedby",
+            "description": "User/service that last modified the config"
+          },
+          "message": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Message",
+            "description": "Optional informational message (e.g., warnings about ignored configuration changes)"
+          }
+        },
+        "type": "object",
+        "required": [
+          "environmentId",
+          "effectiveConfig",
+          "lastModified",
+          "modifiedBy"
+        ],
+        "title": "ConfigResponse",
+        "description": "Response model for config operations.\n\nReturned by all config endpoints (POST, GET, PUT, DELETE) to provide\na consistent response structure with metadata."
+      },
+      "EmbeddingModelInfo": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "title": "Name",
+            "description": "Embedding model name/identifier"
+          },
+          "max_chunk_size": {
+            "type": "integer",
+            "title": "Max Chunk Size",
+            "description": "Maximum input chunk size supported by the model"
+          },
+          "supported_precisions": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Supported Precisions",
+            "description": "Numeric precisions supported (e.g., 'float32', 'int8')"
+          },
+          "supported_output_dimensions": {
+            "items": {
+              "type": "integer"
+            },
+            "type": "array",
+            "title": "Supported Output Dimensions",
+            "description": "Output embedding dimensions supported by the model (e.g., 512, 1024, 1536)"
+          },
+          "supported_input_type": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Supported Input Type",
+            "description": "Input types supported (e.g., 'text', 'image')"
+          }
+        },
+        "type": "object",
+        "required": [
+          "name",
+          "max_chunk_size",
+          "supported_precisions",
+          "supported_output_dimensions",
+          "supported_input_type"
+        ],
+        "title": "EmbeddingModelInfo",
+        "description": "Information about a single embedding model."
+      },
+      "EmbeddingsResponse": {
+        "properties": {
+          "models": {
+            "items": {
+              "$ref": "#/components/schemas/EmbeddingModelInfo"
+            },
+            "type": "array",
+            "title": "Models",
+            "description": "List of available embedding models and their capabilities"
+          }
+        },
+        "type": "object",
+        "required": [
+          "models"
+        ],
+        "title": "EmbeddingsResponse",
+        "description": "Response model for embeddings endpoint."
+      },
+      "MatchResponse": {
+        "properties": {
+          "environmentId": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Environmentid",
+            "description": "Environment UUID"
+          },
+          "effectiveConfig": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Effectiveconfig",
+            "description": "Final merged config (system + environment + first matched rule)"
+          },
+          "environmentDefaults": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Environmentdefaults",
+            "description": "Environment-configured defaults from S3"
+          },
+          "matchedRule": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/MatchedRuleInfo"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "First rule that matched, or null"
+          },
+          "additionalMatches": {
+            "items": {
+              "$ref": "#/components/schemas/MatchedRuleInfo"
+            },
+            "type": "array",
+            "title": "Additionalmatches",
+            "description": "Other rules that also matched (overlap warning)"
+          },
+          "warning": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Warning",
+            "description": "Warning message if multiple rules matched"
+          }
+        },
+        "type": "object",
+        "required": [
+          "environmentId",
+          "effectiveConfig",
+          "environmentDefaults"
+        ],
+        "title": "MatchResponse",
+        "description": "Response model for POST /config/options/rules/test."
+      },
+      "MatchedRuleInfo": {
+        "properties": {
+          "ruleId": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ruleid",
+            "description": "Rule UUID"
+          },
+          "name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name",
+            "description": "Human-readable rule name"
+          },
+          "conditions": {
+            "items": {
+              "additionalProperties": {
+                "type": "string"
+              },
+              "type": "object"
+            },
+            "type": "array",
+            "title": "Conditions",
+            "description": "Conditions that matched"
+          },
+          "config": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Config",
+            "description": "Rule's config overrides"
+          }
+        },
+        "type": "object",
+        "required": [
+          "conditions",
+          "config"
+        ],
+        "title": "MatchedRuleInfo",
+        "description": "Information about a matched rule in a test/dry-run response."
+      },
+      "PresignResponse": {
+        "properties": {
+          "job_id": {
+            "type": "string",
+            "title": "Job Id",
+            "description": "Unique identifier for the submitted job"
+          },
+          "put_url": {
+            "type": "string",
+            "title": "Put Url",
+            "description": "Presigned URL for uploading the source file"
+          },
+          "get_url": {
+            "type": "string",
+            "title": "Get Url",
+            "description": "Presigned URL for downloading the processed result"
+          },
+          "options": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Options",
+            "description": "Pipeline options submitted with the job"
+          },
+          "message": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Message",
+            "description": "Optional informational message"
+          },
+          "put_headers": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "type": "object",
+            "title": "Put Headers",
+            "description": "Header key/value pairs the client must send with the PUT upload request"
+          }
+        },
+        "type": "object",
+        "required": [
+          "job_id",
+          "put_url",
+          "get_url",
+          "options"
+        ],
+        "title": "PresignResponse",
+        "description": "Response model for presign endpoint."
+      },
+      "RuleCondition": {
+        "properties": {
+          "field": {
+            "type": "string",
+            "maxLength": 255,
+            "minLength": 1,
+            "pattern": "^[a-zA-Z][a-zA-Z0-9_]*$",
+            "title": "Field",
+            "description": "Field name to match (alphanumeric + underscore, must start with letter)"
+          },
+          "value": {
+            "type": "string",
+            "maxLength": 1000,
+            "minLength": 1,
+            "title": "Value",
+            "description": "Value to match (exact equality)"
+          }
+        },
+        "type": "object",
+        "required": [
+          "field",
+          "value"
+        ],
+        "title": "RuleCondition",
+        "description": "Single condition in a rule's conditions array.\n\nValidates field name pattern to prevent injection attacks.\nField must start with letter, contain only alphanumeric + underscore.\n\nExamples:\n    >>> RuleCondition(field=\"documentType\", value=\"invoice\")\n    RuleCondition(field='documentType', value='invoice')\n\n    >>> RuleCondition(field=\"123invalid\", value=\"test\")  # doctest: +SKIP\n    ValidationError: field must match pattern ^[a-zA-Z][a-zA-Z0-9_]*$"
+      },
+      "RuleCreateResponse": {
+        "properties": {
+          "environmentId": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Environmentid",
+            "description": "Environment UUID"
+          },
+          "effectiveConfig": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Effectiveconfig",
+            "description": "Environment configuration (may contain defaults, rules, or both depending on endpoint)"
+          },
+          "lastModified": {
+            "type": "string",
+            "title": "Lastmodified",
+            "description": "ISO-8601 timestamp of last modification"
+          },
+          "modifiedBy": {
+            "type": "string",
+            "title": "Modifiedby",
+            "description": "User/service that last modified the config"
+          },
+          "message": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Message",
+            "description": "Optional informational message (e.g., warnings about ignored configuration changes)"
+          },
+          "ruleId": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Ruleid",
+            "description": "Generated UUID for the created rule"
+          }
+        },
+        "type": "object",
+        "required": [
+          "environmentId",
+          "effectiveConfig",
+          "lastModified",
+          "modifiedBy",
+          "ruleId"
+        ],
+        "title": "RuleCreateResponse",
+        "description": "Response model for rule creation (extends ConfigResponse).\n\nAdds ruleId field to standard ConfigResponse for rule creation endpoint."
+      },
+      "RuleInput": {
+        "properties": {
+          "name": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 100
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name",
+            "description": "Optional user-friendly name for the rule"
+          },
+          "conditions": {
+            "items": {
+              "$ref": "#/components/schemas/RuleCondition"
+            },
+            "type": "array",
+            "maxItems": 1,
+            "minItems": 1,
+            "title": "Conditions",
+            "description": "Conditions that trigger this rule (currently limited to 1)"
+          },
+          "config": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Config",
+            "description": "Configuration overrides to apply when conditions match"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "conditions",
+          "config"
+        ],
+        "title": "RuleInput",
+        "description": "Request model for creating a rule.\n\nValidates rule structure with exactly 1 condition (for CIN-12944).\nFuture stories can expand to multiple conditions (AND logic).\n\nUnknown fields are rejected at every level of the body: at the root by\n``extra=\"forbid\"``, inside ``conditions`` by ``StrictRuleCondition``, and inside\n``config`` by ``get_validated_config`` (CIN-14209)."
+      },
+      "SingleRuleResponse": {
+        "properties": {
+          "environmentId": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Environmentid",
+            "description": "Environment UUID"
+          },
+          "rule": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Rule",
+            "description": "Single rule object (rule_id, name?, conditions: list, config: dict)"
+          },
+          "lastModified": {
+            "type": "string",
+            "title": "Lastmodified",
+            "description": "ISO-8601 timestamp of last modification"
+          },
+          "modifiedBy": {
+            "type": "string",
+            "title": "Modifiedby",
+            "description": "User/service that last modified the config"
+          }
+        },
+        "type": "object",
+        "required": [
+          "environmentId",
+          "rule",
+          "lastModified",
+          "modifiedBy"
+        ],
+        "title": "SingleRuleResponse",
+        "description": "Response envelope for single rule endpoint.\n\nUsed by:\n- GET /config/options/rules/{rule_id}\n\nDistinct from ConfigResponse because single rule uses 'rule' field\ninstead of 'effectiveConfig' field."
+      },
+      "StatusResponse": {
+        "properties": {
+          "jobId": {
+            "type": "string",
+            "title": "Jobid",
+            "description": "Unique identifier of the job being queried"
+          },
+          "status": {
+            "type": "string",
+            "title": "Status",
+            "description": "Current job status (e.g., 'Processing', 'Done', 'Error', 'Deleted')"
+          },
+          "startedAt": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Startedat",
+            "description": "When the workflow run started (ISO-8601, UTC with an offset). Present once a run has started."
+          },
+          "updatedAt": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Updatedat",
+            "description": "When the workflow run last changed (ISO-8601, UTC with an offset). Equals the completion time once the run has finished."
+          },
+          "fileType": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Filetype",
+            "description": "The detected file type (e.g., 'application/pdf'), or 'empty' for a zero-byte file. Present after the run finishes, when a type was detected."
+          },
+          "fileSize": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Filesize",
+            "description": "Size in bytes of the file as inspected (0 for an empty file; the downscaled size for a large image). Present after the run finishes, when it is known."
+          },
+          "page_count": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Page Count",
+            "description": "The number of pages in the document. Present after the run finishes, when pages were counted."
+          },
+          "attempts": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Attempts",
+            "description": "The attempt count the workflow recorded for the file-type stage: 1 when the stage returned a result (even after retries), 5 when the retries ran out, 0 when the stage was never called. It is not the number of HTTP calls. Present after the run finishes."
+          },
+          "errorClassification": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "permanent",
+                  "transient"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Errorclassification",
+            "description": "Whether the failure is 'permanent' (retrying will not help) or 'transient'. Present when the job status is 'Error'."
+          },
+          "errorMessage": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Errormessage",
+            "description": "Why the job failed, in words safe to show to a client. Present when the job status is 'Error'."
+          }
+        },
+        "type": "object",
+        "required": [
+          "jobId",
+          "status"
+        ],
+        "title": "StatusResponse",
+        "description": "Response model for status endpoint."
+      },
+      "SubmitChunkingOptions": {
+        "properties": {
+          "strategy": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "context",
+                  "fixed"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Chunking Strategy",
+            "description": "Strategy used to split the document into chunks. `fixed` produces fixed-size chunks with a configurable `chunk_overlap`; `context` splits along semantic/structural boundaries (headings, tables) and ignores `chunk_overlap`. Defaults to `fixed`."
+          },
+          "chunk_size": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Chunk Size",
+            "description": "Target size, in characters, for each chunk. Must be greater than 512. When embeddings are enabled the value is clamped to the embedding model's maximum chunk size. Defaults to 2000."
+          },
+          "chunk_overlap": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Chunk Overlap",
+            "description": "Number of overlapping characters between consecutive chunks. Only applies to the `fixed` chunking strategy and is ignored for `context` chunking. Defaults to 100 when omitted. The value is always clamped so that `chunk_overlap <= chunk_size / 2`. Out-of-range values are reduced and the adjustment is reported in the response message."
+          },
+          "location_reporting": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "single",
+                  "merged"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Location Reporting",
+            "description": "Controls how source locations are reported for each chunk. `merged` reports a single bounding box covering the largest page the chunk spans; `single` reports the chunk's first location marker. Defaults to `merged`."
+          }
+        },
+        "type": "object",
+        "title": "SubmitChunkingOptions",
+        "description": "Text chunking options."
+      },
+      "SubmitEmbeddingOptions": {
+        "properties": {
+          "model": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Embedding Model",
+            "description": "Identifier of the model used to generate embeddings for each chunk. Must be one of the enabled embedding models; the name is matched case-insensitively and normalized to its canonical form. Defaults to the environment's configured embedding model."
+          },
+          "precision": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "float32",
+                  "int8"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Embedding Precision",
+            "description": "Numeric precision of the generated embedding vectors. `float32` produces full-precision vectors; `int8` produces smaller quantized vectors where the model supports it. The value must be supported by the selected model. Defaults to `float32`."
+          }
+        },
+        "type": "object",
+        "title": "SubmitEmbeddingOptions",
+        "description": "Embedding options."
+      },
+      "SubmitImageOptions": {
+        "properties": {
+          "extract_tables": {
+            "type": "boolean",
+            "title": "Extract Tables",
+            "description": "When enabled, detects tables in images and emits them as markdown tables. Enabling this increases processing time. Defaults to false.",
+            "default": false
+          },
+          "ocr_filter_enabled": {
+            "type": "boolean",
+            "title": "OCR Pre-filtering",
+            "description": "Controls whether OCR pre-filtering runs to skip images unlikely to contain text. Defaults to true.",
+            "default": true
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "title": "SubmitImageOptions",
+        "description": "Image processing options."
+      },
+      "SubmitNormalizationOptions": {
+        "properties": {
+          "quotations": {
+            "type": "boolean",
+            "title": "Normalize Quotations",
+            "description": "When enabled, converts typographic (curly) single and double quotation marks to their plain ASCII equivalents. Defaults to false.",
+            "default": false
+          },
+          "dashes": {
+            "type": "boolean",
+            "title": "Normalize Dashes",
+            "description": "When enabled, converts en-dashes and em-dashes to plain ASCII hyphens. Defaults to false.",
+            "default": false
+          }
+        },
+        "type": "object",
+        "title": "SubmitNormalizationOptions",
+        "description": "Text normalization options."
+      },
+      "SubmitOptions": {
+        "properties": {
+          "normalization": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SubmitNormalizationOptions"
+              },
+              {
+                "type": "boolean",
+                "const": true
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Normalization"
+          },
+          "pii": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SubmitPIIOptions"
+              },
+              {
+                "type": "boolean",
+                "const": false
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "PII",
+            "description": "Personally identifiable information (PII) detection and redaction. To enable it, send an object with a `mode`, for example `{\"mode\": \"redaction\"}`. To disable it, send the JSON boolean `false` (not the string `\"false\"`). The legacy string form (`\"detection\"` or `\"redaction\"`) is still accepted, but use the object form instead.",
+            "examples": [
+              {
+                "mode": "detection"
+              },
+              {
+                "entity_redaction": true,
+                "mode": "redaction"
+              },
+              false
+            ]
+          },
+          "chunking": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SubmitChunkingOptions"
+              },
+              {
+                "type": "boolean",
+                "enum": [
+                  true,
+                  false
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Chunking"
+          },
+          "embedding": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SubmitEmbeddingOptions"
+              },
+              {
+                "type": "boolean",
+                "enum": [
+                  true,
+                  false
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Embedding"
+          },
+          "json_schema": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "FULL",
+                  "MDAST",
+                  "PIPELINE"
+                ]
+              },
+              {
+                "type": "boolean",
+                "const": false
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Json Schema"
+          },
+          "image": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SubmitImageOptions"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "image_embedding": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Image Embedding (Alpha)",
+            "description": "\ud83d\udea7 **ALPHA** \u2013 experimental, subject to change. Generate embeddings for images."
+          },
+          "image_embedding_model": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Image Embedding Model (Alpha)",
+            "description": "\ud83d\udea7 **ALPHA** \u2013 experimental, subject to change. Model to use for image embeddings."
+          }
+        },
+        "additionalProperties": true,
+        "type": "object",
+        "title": "SubmitOptions",
+        "description": "Validated user-submitted pipeline options.\n\nRepresents the user's input after normalization, legacy key mapping,\nand basic type/value validation. Does not include system-only fields\n(max_chunk_size or max_chunks_per_request).\n\nCan be used directly as a FastAPI request body model (accepts raw API\ninput with extra fields) or via ``from_dict()`` for dict-based parsing."
+      },
+      "SubmitPIIOptions": {
+        "properties": {
+          "mode": {
+            "type": "string",
+            "enum": [
+              "detection",
+              "redaction"
+            ],
+            "title": "PII Mode",
+            "description": "Controls how detected personally identifiable information (PII) is handled. `detection` reports the PII entities found without altering the text; `redaction` removes or masks the detected entities in the output."
+          },
+          "entity_redaction": {
+            "type": "boolean",
+            "title": "Entity Redaction",
+            "description": "When enabled, replaces each redacted PII value with a label identifying its entity type (e.g. `[PERSON]`) instead of a generic mask. Only applies when `mode` is `redaction`. Enabling this increases processing time. Defaults to false.",
+            "default": false
+          }
+        },
+        "type": "object",
+        "required": [
+          "mode"
+        ],
+        "title": "SubmitPIIOptions",
+        "description": "Personally identifiable information (PII) detection/redaction options."
+      }
+    },
+    "securitySchemes": {
+      "HTTPBearer": {
+        "type": "http",
+        "scheme": "bearer"
+      }
+    }
+  },
+  "tags": [
+    {
+      "name": "health",
+      "description": "Health check and service status endpoints"
+    },
+    {
+      "name": "pipeline",
+      "description": "Document processing endpoints for ad-hoc data curation pipeline. Generate presigned S3 URLs for file upload and retrieve job status."
+    },
+    {
+      "name": "config",
+      "description": "Configuration management endpoints for Content Lake integration. Manage environment-wide processing defaults and source-specific override rules."
+    }
+  ],
+  "externalDocs": {
+    "description": "Account Setup & Getting Started",
+    "url": "https://hyland.github.io/ContentIntelligence-Docs/KnowledgeEnrichment/quickstart"
+  },
+  "servers": [
+    {
+      "url": "/latest/api/data-curation"
+    }
+  ]
+}

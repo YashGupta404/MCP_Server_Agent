@@ -36,9 +36,14 @@ builder.Configuration.AddUserSecrets(Assembly.GetExecutingAssembly(), optional: 
 
 builder.Services.Configure<AuthOptions>(builder.Configuration.GetSection("Auth"));
 builder.Services.Configure<AgentOptions>(builder.Configuration.GetSection("Agent"));
+builder.Services.Configure<ContextAgentOptions>(builder.Configuration.GetSection("ContextAgent"));
+builder.Services.Configure<MappingAgentOptions>(builder.Configuration.GetSection("MappingAgent"));
 builder.Services.Configure<McpOptions>(builder.Configuration.GetSection("Mcp"));
 builder.Services.Configure<WorkdayOptions>(builder.Configuration.GetSection("Workday"));
+builder.Services.Configure<KeContextOptions>(builder.Configuration.GetSection("Ke"));
+builder.Services.Configure<DataCurationOptions>(builder.Configuration.GetSection("DataCuration"));
 builder.Services.Configure<IdpOptions>(builder.Configuration.GetSection("Idp"));
+builder.Services.Configure<ViewerOptions>(builder.Configuration.GetSection("Viewer"));
 builder.Services.AddHttpClient();
 builder.Services.AddSingleton<SessionStore>();
 
@@ -54,9 +59,14 @@ app.UseCors();
 
 var auth = app.Services.GetRequiredService<IOptions<AuthOptions>>().Value;
 var agent = app.Services.GetRequiredService<IOptions<AgentOptions>>().Value;
+var contextAgent = app.Services.GetRequiredService<IOptions<ContextAgentOptions>>().Value;
+var mappingAgent = app.Services.GetRequiredService<IOptions<MappingAgentOptions>>().Value;
 var mcp = app.Services.GetRequiredService<IOptions<McpOptions>>().Value;
 var workday = app.Services.GetRequiredService<IOptions<WorkdayOptions>>().Value;
 var idp = app.Services.GetRequiredService<IOptions<IdpOptions>>().Value;
+var viewer = app.Services.GetRequiredService<IOptions<ViewerOptions>>().Value;
+var ke = app.Services.GetRequiredService<IOptions<KeContextOptions>>().Value;
+var dataCuration = app.Services.GetRequiredService<IOptions<DataCurationOptions>>().Value;
 // Staged file bytes IDP's cloud service fetches via GET /api/idp/file/{id} (the classification sourceUrl).
 var idpFiles = new ConcurrentDictionary<string, (byte[] Bytes, string Mime, string Name)>();
 var sessions = app.Services.GetRequiredService<SessionStore>();
@@ -417,7 +427,7 @@ app.MapPost("/api/chat", async (HttpContext ctx, ChatRequest req) =>
                     $"When the user wants to search/find a document: present these query names and ask which one, then ask " +
                     $"for the value to search for. Execute with the query_documents tool: businessObjectType=\"{req.BusinessObjectType}\", " +
                     $"queryId=<chosen query's id>, filterFieldId=<that query's search fieldId>, filterValue=<the user's value>, " +
-                    $"filterOperator=<that query's operator>, maxResults=25. Use ONLY the queryIds and fieldIds listed above — " +
+                    $"filterOperator=\"ContainsCaseInsensitive\", maxResults=25. Use ONLY the queryIds and fieldIds listed above — " +
                     $"never invent them — and report every returned document.]").Trim();
             }
         }
@@ -426,6 +436,16 @@ app.MapPost("/api/chat", async (HttpContext ctx, ChatRequest req) =>
             log.LogWarning(ex, "/api/chat: search catalog hint skipped for {Type}", req.BusinessObjectType);
         }
     }
+
+    // Tag each listed document with a machine marker the plugin turns into an "Open" button that
+    // shows the document in the in-panel viewer. The docId comes from the tool result.
+    effectiveMessage = (effectiveMessage +
+        "\n\n[When you list, show, or mention documents, append to the END of each document's line a marker in the " +
+        "EXACT form [[doc:<docId>|<documentName>]] using that document's docId and name from the tool result " +
+        "(never alter or invent the docId). Keep your normal readable answer; these markers are hidden and render " +
+        "as clickable \"Open\" buttons that open the document in the panel. Add exactly one marker per document. " +
+        "If there are many documents, list AT MOST the 20 most recent (newest first) and then state the total count " +
+        "(e.g. \"Showing 20 of 100\") so the reply stays within the output limit.]").Trim();
 
     var http = httpFactory.CreateClient();
     // The first message can trigger an interactive MCP->UCEB login (up to 120s), so let the
@@ -462,7 +482,10 @@ app.MapPost("/api/chat", async (HttpContext ctx, ChatRequest req) =>
     invokeReq.Headers.TryAddWithoutValidation("User-Agent", "UcebAgentBff/0.1");
     invokeReq.Headers.TryAddWithoutValidation("Accept", "application/json");
     invokeReq.Content = new StringContent(
-        JsonSerializer.Serialize(new { messages = new[] { new { role = "user", content = effectiveMessage } } }),
+        JsonSerializer.Serialize(new
+        {
+            messages = new[] { new { role = "user", content = effectiveMessage } },
+        }),
         Encoding.UTF8, "application/json");
 
     HttpResponseMessage invokeResp;
@@ -486,6 +509,631 @@ app.MapPost("/api/chat", async (HttpContext ctx, ChatRequest req) =>
     }
 
     return Results.Json(new { reply = ExtractReply(invokeBody) });
+});
+
+// ---------- AI context extraction: detect the business object on ANY page via the Agent Builder agent ----------
+// The extension captures the active tab (url + title + visible text) and posts it here. We invoke the
+// context_extractor Task agent (invoke-task) which returns a structured businessContext outcome. The agent
+// has NO web access, so the page content MUST be supplied by the caller (the extension).
+app.MapPost("/api/context/extract", async (HttpContext ctx, ContextExtractRequest req) =>
+{
+    var sessionId = ctx.Request.Headers["X-BFF-Session"].ToString();
+    if (string.IsNullOrEmpty(sessionId) || !sessions.TryGet(sessionId, out var session))
+        return Results.Json(new { error = "not_authenticated" }, statusCode: 401);
+
+    if (string.IsNullOrWhiteSpace(req.PageUrl) && string.IsNullOrWhiteSpace(req.PageContent))
+        return Results.Json(new { error = "missing_fields", detail = "pageUrl or pageContent is required." }, statusCode: 400);
+
+    if (string.IsNullOrWhiteSpace(contextAgent.AgentId) || string.IsNullOrWhiteSpace(contextAgent.ApiBaseUrl))
+        return Results.Json(new { error = "context_agent_not_configured", detail = "ContextAgent:AgentId / ApiBaseUrl is not set." }, statusCode: 500);
+
+    var http = httpFactory.CreateClient();
+    http.Timeout = Timeout.InfiniteTimeSpan;
+
+    // Refresh the access token if it's expired (same pattern as /api/chat).
+    if (DateTimeOffset.UtcNow >= session!.ExpiresAt && !string.IsNullOrEmpty(session.RefreshToken))
+    {
+        var refreshResp = await http.PostAsync(auth.TokenEndpoint, new FormUrlEncodedContent(new Dictionary<string, string>
+        {
+            ["grant_type"] = "refresh_token",
+            ["refresh_token"] = session.RefreshToken!,
+            ["client_id"] = auth.ClientId,
+            ["client_secret"] = auth.ClientSecret,
+        }));
+        var refreshBody = await refreshResp.Content.ReadAsStringAsync();
+        if (refreshResp.IsSuccessStatusCode)
+            session = sessions.Save(sessionId, JsonSerializer.Deserialize<TokenResponse>(refreshBody)!);
+        else
+            return Results.Json(new { error = "session_expired" }, statusCode: 401);
+    }
+
+    // Trim the page content to keep the request within the model's context window and control token cost.
+    var pageContent = req.PageContent ?? "";
+    const int maxChars = 12000;
+    if (pageContent.Length > maxChars) pageContent = pageContent.Substring(0, maxChars);
+
+    // The cleaned DOM structure (for authoring xpath/css extraction rules) is larger; cap it generously.
+    var pageHtml = req.PageHtml ?? "";
+    const int maxHtmlChars = 120000;
+    if (pageHtml.Length > maxHtmlChars) pageHtml = pageHtml.Substring(0, maxHtmlChars);
+
+    var invokeUrl = $"{contextAgent.ApiBaseUrl}/v1/agents/{contextAgent.AgentId}/versions/{contextAgent.VersionId}/invoke-task";
+    var invokeJson = JsonSerializer.Serialize(new
+    {
+        inputs = new
+        {
+            pageUrl = req.PageUrl ?? "",
+            pageTitle = req.PageTitle ?? "",
+            pageContent,
+            pageHtml,
+        },
+    });
+    HttpRequestMessage BuildInvoke()
+    {
+        var r = new HttpRequestMessage(HttpMethod.Post, invokeUrl);
+        r.Headers.TryAddWithoutValidation("Authorization", $"Bearer {session!.AccessToken}");
+        // Agent Builder requires X-Session-ID to be a valid UUID (the BFF session id is rejected with a 400).
+        r.Headers.TryAddWithoutValidation("X-Session-ID", Guid.NewGuid().ToString());
+        r.Headers.TryAddWithoutValidation("User-Agent", "UcebAgentBff/0.1");
+        r.Headers.TryAddWithoutValidation("Accept", "application/json");
+        r.Content = new StringContent(invokeJson, Encoding.UTF8, "application/json");
+        return r;
+    }
+
+    HttpResponseMessage invokeResp;
+    try
+    {
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(120));
+        invokeResp = await SendWithConnectRetryAsync(http, BuildInvoke, log, cts.Token);
+    }
+    catch (OperationCanceledException)
+    {
+        log.LogError("/api/context/extract timed out url={Url}", invokeUrl);
+        return Results.Json(new { error = "invoke_timeout", status = 504 }, statusCode: 504);
+    }
+    catch (HttpRequestException ex)
+    {
+        log.LogError(ex, "/api/context/extract could not connect url={Url}", invokeUrl);
+        return Results.Json(new { error = "agent_unreachable", detail = $"Could not connect to Agent Builder: {ex.InnerException?.Message ?? ex.Message}. Try again." }, statusCode: 502);
+    }
+    var body = await invokeResp.Content.ReadAsStringAsync();
+
+    if (!invokeResp.IsSuccessStatusCode)
+    {
+        log.LogError("/api/context/extract invoke failed {Status} url={Url}: {Body}", (int)invokeResp.StatusCode, invokeUrl, body);
+        return Results.Json(new { error = "invoke_failed", status = (int)invokeResp.StatusCode, detail = body }, statusCode: (int)invokeResp.StatusCode);
+    }
+
+    // Best-effort parse of the structured businessContext outcome; include raw until the exact
+    // invoke-task response shape is confirmed on a live call.
+    var context = ExtractTaskOutcome(body);
+    JsonElement raw = default;
+    try { raw = JsonSerializer.Deserialize<JsonElement>(body); } catch { }
+    return Results.Json(new { context, raw });
+});
+
+// ---------- Data Curation (KE): full document text (OCR for images) for the capture/mapping agent ----------
+app.MapPost("/api/datacuration/extract", async (HttpContext ctx, AutoConfigRequest req) =>
+{
+    var sessionId = ctx.Request.Headers["X-BFF-Session"].ToString();
+    if (string.IsNullOrEmpty(sessionId) || !sessions.TryGet(sessionId, out _))
+        return Results.Json(new { error = "not_authenticated" }, statusCode: 401);
+
+    if (!dataCuration.IsConfigured)
+        return Results.Json(new { error = "datacuration_not_configured", detail = "Set DataCuration:ClientId and DataCuration:ClientSecret in the BFF user-secrets (cin-data-curation-api client)." }, statusCode: 500);
+
+    if (req.Attachments is null || req.Attachments.Length == 0)
+        return Results.Json(new { error = "missing_files", detail = "Attach at least one document." }, statusCode: 400);
+
+    var http = httpFactory.CreateClient();
+    http.Timeout = TimeSpan.FromSeconds(dataCuration.TimeoutSeconds + 30);
+    var dc = new DataCurationClient(http, dataCuration);
+
+    var files = new List<object>();
+    foreach (var a in req.Attachments)
+    {
+        if (string.IsNullOrWhiteSpace(a.DataBase64)) continue;
+        try
+        {
+            var r = await dc.ExtractAsync(Convert.FromBase64String(a.DataBase64), ctx.RequestAborted);
+            files.Add(new { name = a.Name, r.JobId, r.Status, r.FileType, r.PageCount, text = r.Text, markdown = r.Markdown });
+        }
+        catch (Exception ex)
+        {
+            log.LogError(ex, "/api/datacuration/extract failed for {Name}", a.Name);
+            files.Add(new { name = a.Name, error = ex.Message });
+        }
+    }
+    return Results.Json(new { files });
+});
+
+// ---------- Agent mapping: LOB context + document text + live ECM catalog -> solution_config_mapper_poc ----------
+// Inputs match the agent's v4 prompt: businessContext, lobPageContent, ecmCatalog, documentInsights, ecmQueries.
+// documentInsights carries the Data Curation full text per file, plus KE Context classification/entities when
+// configured. The outcome is validated against the live catalog before it is returned.
+app.MapPost("/api/autoconfig/agent-map", async (HttpContext ctx, AgentMapRequest req) =>
+{
+    var sessionId = ctx.Request.Headers["X-BFF-Session"].ToString();
+    if (string.IsNullOrEmpty(sessionId) || !sessions.TryGet(sessionId, out var session))
+        return Results.Json(new { error = "not_authenticated" }, statusCode: 401);
+
+    if (req.Attachments is null || !req.Attachments.Any(a => !string.IsNullOrWhiteSpace(a.DataBase64)))
+        return Results.Json(new { error = "missing_files", detail = "Attach at least one sample document." }, statusCode: 400);
+    if (string.IsNullOrWhiteSpace(mappingAgent.AgentId) || string.IsNullOrWhiteSpace(mappingAgent.ApiBaseUrl))
+        return Results.Json(new { error = "mapping_agent_not_configured", detail = "MappingAgent:AgentId / ApiBaseUrl is not set." }, statusCode: 500);
+    if (string.IsNullOrWhiteSpace(mcp.BaseUrl) || string.IsNullOrWhiteSpace(mcp.ApiKey))
+        return Results.Json(new { error = "mcp_not_configured", detail = "Mcp:BaseUrl / Mcp:ApiKey is not configured on the BFF." }, statusCode: 500);
+    if (!dataCuration.IsConfigured)
+        return Results.Json(new { error = "datacuration_not_configured", detail = "Set DataCuration:ClientId and DataCuration:ClientSecret in the BFF user-secrets." }, statusCode: 500);
+
+    var http = httpFactory.CreateClient();
+    http.Timeout = Timeout.InfiniteTimeSpan;
+
+    // Refresh the access token if it's expired (same pattern as /api/context/extract).
+    if (DateTimeOffset.UtcNow >= session!.ExpiresAt && !string.IsNullOrEmpty(session.RefreshToken))
+    {
+        var refreshResp = await http.PostAsync(auth.TokenEndpoint, new FormUrlEncodedContent(new Dictionary<string, string>
+        {
+            ["grant_type"] = "refresh_token",
+            ["refresh_token"] = session.RefreshToken!,
+            ["client_id"] = auth.ClientId,
+            ["client_secret"] = auth.ClientSecret,
+        }));
+        var refreshBody = await refreshResp.Content.ReadAsStringAsync();
+        if (refreshResp.IsSuccessStatusCode)
+            session = sessions.Save(sessionId, JsonSerializer.Deserialize<TokenResponse>(refreshBody)!);
+        else
+            return Results.Json(new { error = "session_expired" }, statusCode: 401);
+    }
+
+    var ct = ctx.RequestAborted;
+    var files = req.Attachments.Where(a => !string.IsNullOrWhiteSpace(a.DataBase64))
+        .Select(a => (Att: a, Bytes: Convert.FromBase64String(a.DataBase64))).ToList();
+
+    // Catalogs and document text are independent: start them together.
+    var dcHttp = httpFactory.CreateClient();
+    dcHttp.Timeout = TimeSpan.FromSeconds(dataCuration.TimeoutSeconds + 30);
+    var dc = new DataCurationClient(dcHttp, dataCuration);
+    var catalogTask = EcmDoctypeCatalog.FetchAsync(httpFactory, mcp, log, ct);
+    var queriesTask = EcmQueryCatalog.FetchAsync(httpFactory, mcp, log, ct);
+    var textTasks = files.Select(f => dc.ExtractAsync(f.Bytes, ct)).ToList();
+
+    EcmCatalog catalog;
+    try { catalog = await catalogTask; }
+    catch (Exception ex)
+    {
+        log.LogError(ex, "/api/autoconfig/agent-map: ECM catalog failed");
+        return Results.Json(new { error = "catalog_failed", detail = ex.Message }, statusCode: 502);
+    }
+    if (catalog.Doctypes.Count == 0)
+        return Results.Json(new { error = "no_doctypes", detail = "The active system returned no document types." }, statusCode: 400);
+
+    // KE Context is an optional extra signal (classification against the live doctype names + entities).
+    var classes = catalog.Doctypes.Select(d => d.ContentTypeName).Where(n => !string.IsNullOrWhiteSpace(n)).Distinct().ToArray();
+    var keTasks = files.Select(f => ke.IsConfigured
+        ? EnrichOrNullAsync(f.Bytes, string.IsNullOrWhiteSpace(f.Att.Mime) ? KeContextClient.GuessContentType(f.Att.Name ?? "") : f.Att.Mime!)
+        : Task.FromResult<KeContentsProcessingResults?>(null)).ToList();
+
+    async Task<KeContentsProcessingResults?> EnrichOrNullAsync(byte[] bytes, string mime)
+    {
+        try
+        {
+            var keHttp = httpFactory.CreateClient();
+            keHttp.Timeout = TimeSpan.FromSeconds(180);
+            return await new KeContextClient(keHttp, ke).EnrichAsync(bytes, mime, classes, ke.SummaryMaxWords, ct);
+        }
+        catch (Exception ex)
+        {
+            log.LogWarning(ex, "/api/autoconfig/agent-map: KE Context failed; continuing with Data Curation text only");
+            return null;
+        }
+    }
+
+    JsonArray queries;
+    DataCurationResult[] texts;
+    KeContentsProcessingResults?[] keResults;
+    try
+    {
+        queries = await queriesTask;
+        texts = await Task.WhenAll(textTasks);
+        keResults = await Task.WhenAll(keTasks);
+    }
+    catch (Exception ex)
+    {
+        log.LogError(ex, "/api/autoconfig/agent-map: query catalog or Data Curation failed");
+        return Results.Json(new { error = "inputs_failed", detail = ex.Message }, statusCode: 502);
+    }
+
+    var insights = new JsonArray();
+    for (var i = 0; i < files.Count; i++)
+    {
+        var item = new JsonObject
+        {
+            ["fileName"] = files[i].Att.Name,
+            ["documentText"] = texts[i].Text,
+        };
+        var r = keResults[i]?.Results?.FirstOrDefault();
+        if (r is not null)
+        {
+            item["classification"] = r.TextClassification?.Result;
+            item["summary"] = r.TextSummary?.Result;
+            item["entities"] = JsonSerializer.SerializeToNode(r.NamedEntityText?.Result);
+        }
+        insights.Add(item);
+    }
+
+    var catalogJson = new JsonArray(catalog.Doctypes.Select(d => (JsonNode)new JsonObject
+    {
+        ["id"] = d.ContentTypeId,
+        ["name"] = d.ContentTypeName,
+        ["attributes"] = new JsonArray(d.Keywords.Select(k => (JsonNode)new JsonObject
+        {
+            ["id"] = k.Id,
+            ["name"] = k.Label,
+            ["dataType"] = k.DataType,
+        }).ToArray()),
+    }).ToArray()).ToJsonString();
+
+    var businessContext = req.BusinessContext is { ValueKind: not JsonValueKind.Undefined and not JsonValueKind.Null } bc
+        ? bc.GetRawText() : "{}";
+    var lobPageContent = req.PageContent ?? "";
+    if (lobPageContent.Length > 12000) lobPageContent = lobPageContent[..12000];
+    var documentInsights = insights.ToJsonString();
+    var ecmQueries = queries.ToJsonString();
+
+    var invokeUrl = $"{mappingAgent.ApiBaseUrl}/v1/agents/{mappingAgent.AgentId}/versions/{mappingAgent.VersionId}/invoke-task";
+    var invokeJson = JsonSerializer.Serialize(new
+    {
+        inputs = new { businessContext, lobPageContent, ecmCatalog = catalogJson, documentInsights, ecmQueries },
+    });
+    HttpRequestMessage BuildInvoke()
+    {
+        var r = new HttpRequestMessage(HttpMethod.Post, invokeUrl);
+        r.Headers.TryAddWithoutValidation("Authorization", $"Bearer {session!.AccessToken}");
+        r.Headers.TryAddWithoutValidation("X-Session-ID", Guid.NewGuid().ToString());
+        r.Headers.TryAddWithoutValidation("User-Agent", "UcebAgentBff/0.1");
+        r.Headers.TryAddWithoutValidation("Accept", "application/json");
+        r.Content = new StringContent(invokeJson, Encoding.UTF8, "application/json");
+        return r;
+    }
+
+    HttpResponseMessage invokeResp;
+    try
+    {
+        using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        cts.CancelAfter(TimeSpan.FromSeconds(180));
+        invokeResp = await SendWithConnectRetryAsync(http, BuildInvoke, log, cts.Token);
+    }
+    catch (OperationCanceledException)
+    {
+        log.LogError("/api/autoconfig/agent-map: mapping agent timed out url={Url}", invokeUrl);
+        return Results.Json(new { error = "invoke_timeout", status = 504 }, statusCode: 504);
+    }
+    catch (HttpRequestException ex)
+    {
+        log.LogError(ex, "/api/autoconfig/agent-map: could not connect url={Url}", invokeUrl);
+        return Results.Json(new { error = "agent_unreachable", detail = $"Could not connect to Agent Builder: {ex.InnerException?.Message ?? ex.Message}. Try again." }, statusCode: 502);
+    }
+    var body = await invokeResp.Content.ReadAsStringAsync();
+    if (!invokeResp.IsSuccessStatusCode)
+    {
+        log.LogError("/api/autoconfig/agent-map invoke failed {Status}: {Body}", (int)invokeResp.StatusCode, body);
+        return Results.Json(new { error = "invoke_failed", status = (int)invokeResp.StatusCode, detail = body }, statusCode: (int)invokeResp.StatusCode);
+    }
+
+    try
+    {
+        var dumpDir = Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "logs", "agent-map");
+        Directory.CreateDirectory(dumpDir);
+        await File.WriteAllTextAsync(Path.Combine(dumpDir, $"{DateTime.UtcNow:yyyyMMdd-HHmmss}.json"), body);
+    }
+    catch (Exception ex) { log.LogWarning(ex, "/api/autoconfig/agent-map: could not save the raw agent response"); }
+
+    var outcome = ExtractNamedOutcome(body, "solutionMapping");
+    if (outcome is null)
+    {
+        JsonElement raw = default;
+        try { raw = JsonSerializer.Deserialize<JsonElement>(body); } catch { }
+        return Results.Json(new { error = "no_outcome", detail = "The agent response had no solutionMapping outcome.", raw }, statusCode: 502);
+    }
+
+    var validation = AgentMappingValidator.Validate(outcome.Value, catalog, queries);
+    var recordId = req.BusinessContext is { ValueKind: JsonValueKind.Object } ctxObj
+                   && ctxObj.TryGetProperty("businessObjectId", out var idEl) ? idEl.ToString() : null;
+    var captureConfidence = AgentMappingValidator.CaptureConfidence(validation.Mapping, catalog,
+        keResults.Select(r => r?.Results?.FirstOrDefault()?.TextClassification?.Result).ToList(), recordId);
+    return Results.Json(new
+    {
+        mappings = validation.Mapping,
+        captureConfidence,
+        validation = new { valid = validation.Issues.Count == 0, issues = validation.Issues },
+        inputsSent = new
+        {
+            businessContext = JsonNode.Parse(businessContext),
+            ecmCatalog = JsonNode.Parse(catalogJson),
+            documentInsights = insights,
+            ecmQueries = queries,
+        },
+    });
+});
+
+// ---------- Zero-setup capture: write the capture-only config entry, then upload with the reviewed values ----------
+// UCEB rejects an upload unless the active system's solution config has an entry for (busObject, doctype)
+// (422 code 3422), so the entry is upserted just before the upload. The previous config is saved first.
+app.MapPost("/api/capture/commit", async (HttpContext ctx, CaptureCommitRequest req) =>
+{
+    var sessionId = ctx.Request.Headers["X-BFF-Session"].ToString();
+    if (string.IsNullOrEmpty(sessionId) || !sessions.TryGet(sessionId, out _))
+        return Results.Json(new { error = "not_authenticated" }, statusCode: 401);
+
+    var att = req.Attachments?.FirstOrDefault(a => !string.IsNullOrWhiteSpace(a.DataBase64));
+    if (att is null)
+        return Results.Json(new { error = "no_file", detail = "Attach the document to capture." }, statusCode: 400);
+    if (string.IsNullOrWhiteSpace(req.BusinessObjectType) || string.IsNullOrWhiteSpace(req.BusinessObjectId))
+        return Results.Json(new { error = "missing_fields", detail = "businessObjectType and businessObjectId are required." }, statusCode: 400);
+    if (string.IsNullOrWhiteSpace(req.DocumentTypeId))
+        return Results.Json(new { error = "missing_docType", detail = "documentTypeId is required." }, statusCode: 400);
+    if (string.IsNullOrWhiteSpace(mcp.BaseUrl) || string.IsNullOrWhiteSpace(mcp.ApiKey))
+        return Results.Json(new { error = "mcp_not_configured", detail = "Mcp:BaseUrl / Mcp:ApiKey is not configured on the BFF." }, statusCode: 500);
+
+    var ct = ctx.RequestAborted;
+    var busObject = req.BusinessObjectType!;
+    var system = await ActiveSystemFriendlyNameAsync(ct);
+
+    // 1) the doctype's real name + attributes, so we only send fields that exist on it.
+    EcmDoctype doctype;
+    try
+    {
+        var metaText = await McpJsonRpc.CallToolAsync(httpFactory, mcp, "get_document_type_metadata", new { documentTypeId = req.DocumentTypeId }, log, ct);
+        var meta = metaText.TrimStart().StartsWith('{') ? JsonNode.Parse(metaText)?["data"] : null;
+        doctype = meta is null ? null! : KeContextClient.ParseCatalog(new JsonObject { ["data"] = new JsonArray(meta.DeepClone()) }.ToJsonString()).Doctypes.FirstOrDefault()!;
+        if (doctype is null)
+            return Results.Json(new { error = "unknown_docType", detail = $"Document type '{req.DocumentTypeId}' was not found on '{system}': {metaText}" }, statusCode: 400);
+    }
+    catch (Exception ex)
+    {
+        log.LogError(ex, "/api/capture/commit: doctype metadata failed");
+        return Results.Json(new { error = "doctype_failed", detail = ex.Message }, statusCode: 502);
+    }
+
+    var attrs = doctype.Keywords.ToDictionary(k => k.Id, StringComparer.OrdinalIgnoreCase);
+    var skipped = new List<string>();
+    var fields = new List<(EcmKeyword Kw, string Value)>();
+    foreach (var f in req.Fields ?? Array.Empty<CaptureFieldValue>())
+    {
+        if (string.IsNullOrWhiteSpace(f.Id) || string.IsNullOrWhiteSpace(f.Value)) continue;
+        if (!attrs.TryGetValue(f.Id, out var kw)) { skipped.Add(f.Id); continue; }
+        if (string.Equals(f.Id, req.RecordFieldId, StringComparison.OrdinalIgnoreCase)) continue;
+        var value = CaptureConfigWriter.CoerceValue(kw.DataType, f.Value!);
+        if (value is null) { skipped.Add($"{f.Id} ({kw.DataType}: '{f.Value}' is not a number)"); continue; }
+        fields.Add((kw, value));
+    }
+
+    // 2) the doctype's group (OnBase/CFS rejects the archive without it).
+    string? groupId;
+    try { groupId = await DoctypeGroupResolver.ResolveAsync(httpFactory, mcp, system, doctype.ContentTypeId, log, ct); }
+    catch (Exception ex)
+    {
+        log.LogError(ex, "/api/capture/commit: doctype group lookup failed");
+        return Results.Json(new { error = "group_failed", detail = ex.Message }, statusCode: 502);
+    }
+
+    // 3) read config, back it up, upsert the capture-only entry, write it.
+    var spec = new CaptureConfigWriter.Spec(busObject, doctype.ContentTypeName, doctype.ContentTypeId, groupId,
+        string.IsNullOrWhiteSpace(req.RecordFieldId) ? null : req.RecordFieldId,
+        fields.Select(f => new CaptureConfigWriter.Field(f.Kw.Id, f.Kw.Label, f.Kw.DataType)).ToList());
+    JsonObject entry;
+    string? originalData;
+    try
+    {
+        var current = await McpJsonRpc.CallToolAsync(httpFactory, mcp, "get_solution_configurations", new { }, log, ct);
+        if (!current.TrimStart().StartsWith('{'))
+            return Results.Json(new { error = "config_read_failed", detail = current }, statusCode: 502);
+
+        var backupDir = Path.Combine(app.Environment.ContentRootPath, "config-backups", "jit");
+        Directory.CreateDirectory(backupDir);
+        var safeSystem = string.Concat((string.IsNullOrWhiteSpace(system) ? "default" : system).Select(c => char.IsLetterOrDigit(c) ? c : '_'));
+        await File.WriteAllTextAsync(Path.Combine(backupDir, $"{safeSystem}-{DateTime.UtcNow:yyyyMMdd-HHmmss}.json"), current, ct);
+
+        var currentNode = JsonNode.Parse(current)!;
+        originalData = (currentNode["data"] ?? currentNode).ToJsonString();
+        var data = CaptureConfigWriter.Upsert(currentNode, spec);
+        var writeResult = await McpJsonRpc.CallToolAsync(httpFactory, mcp, "set_solution_configuration",
+            new { dataJson = data.ToJsonString() }, log, ct);
+        if (!writeResult.Contains("saved", StringComparison.OrdinalIgnoreCase))
+            return Results.Json(new { error = "config_write_failed", detail = writeResult }, statusCode: 502);
+        entry = CaptureConfigWriter.BuildEntry(spec);
+    }
+    catch (Exception ex)
+    {
+        log.LogError(ex, "/api/capture/commit: config write failed");
+        return Results.Json(new { error = "config_write_failed", detail = ex.Message }, statusCode: 502);
+    }
+
+    // The entry is only needed for this upload: always put the config back exactly as it was before.
+    (object Body, int Status) outcome;
+    bool configRestored;
+    try { outcome = await StageAndUploadAsync(); }
+    finally { configRestored = await RestoreConfigAsync(); }
+    var response = JsonSerializer.SerializeToNode(outcome.Body)!.AsObject();
+    response["configRestored"] = configRestored;
+    return Results.Json(response, statusCode: outcome.Status);
+
+    async Task<bool> RestoreConfigAsync()
+    {
+        try
+        {
+            var r = await McpJsonRpc.CallToolAsync(httpFactory, mcp, "set_solution_configuration",
+                new { dataJson = originalData }, log, CancellationToken.None);
+            var ok = r.Contains("saved", StringComparison.OrdinalIgnoreCase);
+            if (!ok) log.LogError("/api/capture/commit: config restore failed: {Result}", r);
+            return ok;
+        }
+        catch (Exception ex)
+        {
+            log.LogError(ex, "/api/capture/commit: config restore failed");
+            return false;
+        }
+    }
+
+    // 4) stage the file on the MCP and upload it with the record id + the reviewed values.
+    async Task<(object Body, int Status)> StageAndUploadAsync()
+    {
+        var originalName = string.IsNullOrWhiteSpace(att.Name) ? "upload" : Path.GetFileName(att.Name);
+        var stagedName = NormalizeUploadExtension(originalName);
+        string? stagingId;
+        try
+        {
+            var stageHttp = httpFactory.CreateClient();
+            stageHttp.Timeout = TimeSpan.FromSeconds(120);
+            using var stageReq = new HttpRequestMessage(HttpMethod.Post, $"{mcp.BaseUrl.TrimEnd('/')}/staging/upload");
+            stageReq.Headers.TryAddWithoutValidation(mcp.HeaderName, mcp.ApiKey);
+            stageReq.Content = new StringContent(
+                JsonSerializer.Serialize(new { fileName = stagedName, mime = att.Mime, dataBase64 = att.DataBase64 }),
+                Encoding.UTF8, "application/json");
+            using var stageResp = await stageHttp.SendAsync(stageReq, ct);
+            var stageBody = await stageResp.Content.ReadAsStringAsync(ct);
+            if (!stageResp.IsSuccessStatusCode)
+                return (new { error = "staging_failed", status = (int)stageResp.StatusCode, detail = stageBody }, 502);
+            using var stageDoc = JsonDocument.Parse(stageBody);
+            stagingId = stageDoc.RootElement.TryGetProperty("stagingId", out var idEl) ? idEl.GetString() : null;
+        }
+        catch (Exception ex)
+        {
+            log.LogError(ex, "/api/capture/commit: staging failed");
+            return (new { error = "staging_failed", detail = ex.Message }, 502);
+        }
+        if (string.IsNullOrEmpty(stagingId))
+            return (new { error = "staging_failed", detail = "No stagingId returned." }, 502);
+
+        var uploadAttrs = new List<object>();
+        if (!string.IsNullOrWhiteSpace(req.RecordFieldId)) uploadAttrs.Add(new { name = req.RecordFieldId, value = req.BusinessObjectId });
+        uploadAttrs.AddRange(fields.Select(f => (object)new { name = f.Kw.Id, value = f.Value }));
+
+        string uploadText;
+        try
+        {
+            uploadText = await McpJsonRpc.CallToolAsync(httpFactory, mcp, "upload_staged_file", new
+            {
+                stagingId,
+                businessObjectId = req.BusinessObjectId,
+                businessObjectType = busObject,
+                ecmContentTypeName = doctype.ContentTypeName,
+                documentName = Path.GetFileNameWithoutExtension(originalName),
+                additionalAttributesJson = JsonSerializer.Serialize(uploadAttrs),
+            }, log, ct);
+        }
+        catch (Exception ex)
+        {
+            log.LogError(ex, "/api/capture/commit: upload failed");
+            return (new { error = "upload_failed", detail = ex.Message, configEntry = entry }, 502);
+        }
+
+        var match = System.Text.RegularExpressions.Regex.Match(uploadText ?? "", @"documentId:\s*(\S+)");
+        if (UploadTextIndicatesFailure(uploadText) || !match.Success)
+            return (new { error = "upload_failed", detail = uploadText, configEntry = entry }, 502);
+
+        return (new
+        {
+            documentId = match.Groups[1].Value,
+            system,
+            documentType = new { id = doctype.ContentTypeId, name = doctype.ContentTypeName, groupId },
+            recordField = req.RecordFieldId,
+            fields = fields.Select(f => new { id = f.Kw.Id, label = f.Kw.Label, value = f.Value }),
+            skippedFields = skipped,
+            configEntry = entry,
+            uploadResult = uploadText,
+        }, 200);
+    }
+});
+
+// ---------- KE auto-config (PoC): sample docs -> KE classify/NER -> generated solution-config mapping ----------
+// The admin drops a few sample documents in the plugin. The BFF runs them through the KE Context API
+// (OCR + classification + NER), picks the known ECM keyword catalog for the detected doctype, and
+// generates the solution-config mapping fragment (layers 1-6). No manual config needed.
+app.MapPost("/api/autoconfig/analyze", async (HttpContext ctx, AutoConfigRequest req) =>
+{
+    var sessionId = ctx.Request.Headers["X-BFF-Session"].ToString();
+    if (string.IsNullOrEmpty(sessionId) || !sessions.TryGet(sessionId, out _))
+        return Results.Json(new { error = "not_authenticated" }, statusCode: 401);
+
+    if (!ke.IsConfigured)
+        return Results.Json(new { error = "ke_not_configured", detail = "Set Ke:ClientId and Ke:ClientSecret in the BFF user-secrets (cin-context-api client)." }, statusCode: 500);
+
+    if (req.Attachments is null || req.Attachments.Length == 0)
+        return Results.Json(new { error = "missing_files", detail = "Attach at least one sample document." }, statusCode: 400);
+
+    if (string.IsNullOrWhiteSpace(mcp.BaseUrl) || string.IsNullOrWhiteSpace(mcp.ApiKey))
+        return Results.Json(new { error = "mcp_not_configured", detail = "Mcp:BaseUrl / Mcp:ApiKey is not configured on the BFF." }, statusCode: 500);
+
+    // Pull the LIVE ECM keyword catalog from UCEB (list_document_types?fetchMetadata=true) for the active
+    // system, and derive the classification classes from the real doctype names. No hardcoding.
+    EcmCatalog catalog;
+    try
+    {
+        var dtJson = await McpJsonRpc.CallToolAsync(httpFactory, mcp, "list_document_types", new { fetchMetadata = true }, log, ctx.RequestAborted);
+        catalog = KeContextClient.ParseCatalog(dtJson);
+    }
+    catch (Exception ex)
+    {
+        log.LogError(ex, "/api/autoconfig/analyze: list_document_types failed");
+        return Results.Json(new { error = "catalog_failed", detail = ex.Message }, statusCode: 502);
+    }
+    if (catalog.Doctypes.Count == 0)
+        return Results.Json(new { error = "no_doctypes", detail = "The active system returned no document types to classify against." }, statusCode: 400);
+
+    var classes = catalog.Doctypes.Select(d => d.ContentTypeName).Where(n => !string.IsNullOrWhiteSpace(n)).Distinct().ToArray();
+
+    var http = httpFactory.CreateClient();
+    http.Timeout = TimeSpan.FromSeconds(180);
+    var keClient = new KeContextClient(http, ke);
+
+    var files = new List<object>();
+    KeContentsProcessingResults? first = null;
+    try
+    {
+        foreach (var a in req.Attachments)
+        {
+            if (string.IsNullOrWhiteSpace(a.DataBase64)) continue;
+            var bytes = Convert.FromBase64String(a.DataBase64);
+            var contentType = string.IsNullOrWhiteSpace(a.Mime) ? KeContextClient.GuessContentType(a.Name ?? "") : a.Mime!;
+            var results = await keClient.EnrichAsync(bytes, contentType, classes, ke.SummaryMaxWords);
+            first ??= results;
+            var r = results.Results?.FirstOrDefault();
+            files.Add(new
+            {
+                name = a.Name,
+                classification = r?.TextClassification?.Result,
+                summary = r?.TextSummary?.Result,
+                entities = r?.NamedEntityText?.Result,
+            });
+        }
+    }
+    catch (Exception ex)
+    {
+        log.LogError(ex, "/api/autoconfig/analyze KE call failed");
+        return Results.Json(new { error = "ke_failed", detail = ex.Message }, statusCode: 502);
+    }
+
+    object? mappings = null;
+    var report = "";
+    if (first is not null)
+    {
+        try
+        {
+            var busType = req.BusinessObjectType ?? "";
+            var lob = new KeMappingGenerator.LobContext(busType, req.BusinessObjectId ?? "", "number", "opened_by", req.Attachments[0].Name ?? "");
+            (_, report, mappings) = new KeMappingGenerator().Generate(first, catalog, lob);
+        }
+        catch (Exception ex)
+        {
+            log.LogError(ex, "/api/autoconfig/analyze generation failed");
+            return Results.Json(new { error = "generation_failed", detail = ex.Message }, statusCode: 502);
+        }
+    }
+
+    // Mapping-only view: every kind of mapping, nothing else.
+    return Results.Json(new { mappings });
 });
 
 // ---------- Context-aware panel: list documents for the record on the browser screen ----------
@@ -515,18 +1163,35 @@ app.MapPost("/api/context", async (HttpContext ctx, ContextRequest req) =>
         string text = "";
         object[] documents = Array.Empty<object>();
         string[]? columns = null;
-        if (dlq is not null && !string.IsNullOrWhiteSpace(dlq.BoContextFieldId))
+        // Direct listing (e.g. the CFS Query panel): skip the defaultListQuery path, which runs the
+        // native query_documents/queries-execute that 500s on CFS, and go straight to list_documents.
+        if (req.Direct != true && dlq is not null && !string.IsNullOrWhiteSpace(dlq.BoContextFieldId))
         {
-            text = await McpJsonRpc.CallToolAsync(httpFactory, mcp, "query_documents", new
+            async Task<string> RunDlqAsync(string op) => await McpJsonRpc.CallToolAsync(httpFactory, mcp, "query_documents", new
             {
                 businessObjectType = req.BusinessObjectType,
                 queryId = dlq.Id,
                 filterFieldId = dlq.BoContextFieldId,
                 filterValue = req.BusinessObjectId,
-                filterOperator = "EqualsCaseInsensitive",
+                filterOperator = op,
                 maxResults = 500,
             }, log, cts.Token);
+
+            text = await RunDlqAsync("EqualsCaseInsensitive");
             documents = McpJsonRpc.ParseDocumentList(text);
+            // CIC only supports case-sensitive operators ("Case-insensitive operator ... not yet supported").
+            if (documents.Length == 0 && text.Contains("not yet supported", StringComparison.OrdinalIgnoreCase))
+            {
+                text = await RunDlqAsync("EqualsCaseSensitive");
+                documents = McpJsonRpc.ParseDocumentList(text);
+            }
+            // Some OnBase/CFS systems reject EqualsCaseInsensitive ("Invalid Operator"); retry with
+            // ContainsCaseInsensitive (which they accept and, on a full-id filter value, matches the same doc).
+            if (documents.Length == 0 && text.Contains("Invalid Operator", StringComparison.OrdinalIgnoreCase))
+            {
+                text = await RunDlqAsync("ContainsCaseInsensitive");
+                documents = McpJsonRpc.ParseDocumentList(text);
+            }
             if (documents.Length > 0 && dlq.Columns.Length > 0) columns = dlq.Columns;
             else if (documents.Length == 0)
                 log.LogWarning("[/api/context] defaultListQuery {QueryId} returned nothing; falling back to the merged record listing", dlq.Id);
@@ -554,6 +1219,24 @@ app.MapPost("/api/context", async (HttpContext ctx, ContextRequest req) =>
                 documents = McpJsonRpc.ParseDocumentList(text);
             }
             if (documents.Length > 0) columns = null;
+        }
+
+        // Last resort (covers Direct listings, e.g. the chatbot "show my documents" fast-path, where the
+        // dlq path above was skipped): if nothing came back and a defaultListQuery exists, run it with
+        // ContainsCaseInsensitive, which OnBase/CFS systems accept when they reject Equals/StartsWith.
+        if (documents.Length == 0 && dlq is not null && !string.IsNullOrWhiteSpace(dlq.BoContextFieldId))
+        {
+            text = await McpJsonRpc.CallToolAsync(httpFactory, mcp, "query_documents", new
+            {
+                businessObjectType = req.BusinessObjectType,
+                queryId = dlq.Id,
+                filterFieldId = dlq.BoContextFieldId,
+                filterValue = req.BusinessObjectId,
+                filterOperator = "ContainsCaseInsensitive",
+                maxResults = 500,
+            }, log, cts.Token);
+            documents = McpJsonRpc.ParseDocumentList(text);
+            if (documents.Length > 0 && dlq.Columns.Length > 0) columns = dlq.Columns;
         }
         log.LogInformation("[/api/context] type={Type} id={Id} -> {Count} document(s)",
             req.BusinessObjectType, req.BusinessObjectId, documents.Length);
@@ -603,7 +1286,10 @@ app.MapGet("/api/doctypes", async (HttpContext ctx) =>
         }
 
         var text = await McpJsonRpc.CallToolAsync(httpFactory, mcp, "list_document_types", new { }, log, cts.Token);
-        var types = McpJsonRpc.ParseDocumentTypes(text);
+        // "*-base-type" types only carry the LOB mixin for inheritance; they are not uploadable.
+        var types = McpJsonRpc.ParseDocumentTypes(text)
+            .Where(t => !t.EndsWith("-base-type", StringComparison.OrdinalIgnoreCase))
+            .ToArray();
         return Results.Json(new { types, raw = text, source = "list_document_types" });
     }
     catch (Exception ex)
@@ -720,17 +1406,31 @@ app.MapPost("/api/query-execute", async (HttpContext ctx, QueryExecuteRequest re
     try
     {
         using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(90));
-        var args = new Dictionary<string, object?>
+        async Task<string> RunAsync(string op)
         {
-            ["businessObjectType"] = req.BusinessObjectType,
-            ["businessObjectId"] = req.BusinessObjectId,
-            ["queryId"] = req.QueryId,
-            ["filterFieldId"] = req.FilterFieldId,
-            ["filterValue"] = req.FilterValue,
-            ["filterOperator"] = string.IsNullOrWhiteSpace(req.FilterOperator) ? "Contains" : req.FilterOperator,
-        };
-        var text = await McpJsonRpc.CallToolAsync(httpFactory, mcp, "query_documents", args, log, cts.Token);
+            var args = new Dictionary<string, object?>
+            {
+                ["businessObjectType"] = req.BusinessObjectType,
+                ["businessObjectId"] = req.BusinessObjectId,
+                ["queryId"] = req.QueryId,
+                ["filterFieldId"] = req.FilterFieldId,
+                ["filterValue"] = req.FilterValue,
+                ["filterOperator"] = op,
+            };
+            return await McpJsonRpc.CallToolAsync(httpFactory, mcp, "query_documents", args, log, cts.Token);
+        }
+
+        var requested = string.IsNullOrWhiteSpace(req.FilterOperator) ? "ContainsCaseInsensitive" : req.FilterOperator!;
+        var text = await RunAsync(requested);
         var documents = McpJsonRpc.ParseDocumentList(text);
+        // Some OnBase/CFS systems reject Equals/StartsWith operators ("Invalid Operator") even though the
+        // query metadata advertises them; retry with ContainsCaseInsensitive, which they accept.
+        if (documents.Length == 0 && text.Contains("Invalid Operator", StringComparison.OrdinalIgnoreCase)
+            && !string.Equals(requested, "ContainsCaseInsensitive", StringComparison.OrdinalIgnoreCase))
+        {
+            text = await RunAsync("ContainsCaseInsensitive");
+            documents = McpJsonRpc.ParseDocumentList(text);
+        }
         return Results.Json(new { documents, raw = text });
     }
     catch (Exception ex)
@@ -937,7 +1637,27 @@ app.MapPost("/api/capture", async (HttpContext ctx, CaptureRequest req) =>
 
     var businessObjectType = string.IsNullOrWhiteSpace(req.BusinessObjectType) ? "employee" : req.BusinessObjectType;
 
-    // Resolve the record-identifying business-object attributes.
+    // The OnBase/CFS capture broker 500s if a typed attribute carries a value it can't parse (e.g. IDP
+    // extracting "N/A" into a Date field, or a MM/DD/YYYY date). Validate against the attribute's
+    // dataType: drop values that don't fit and normalise dates to ISO (yyyy-MM-dd).
+    static string? SanitizeAttrValue(string? value, string? dataType)
+    {
+        if (string.IsNullOrWhiteSpace(value)) return null;
+        var v = value.Trim();
+        switch ((dataType ?? string.Empty).ToLowerInvariant())
+        {
+            case "date":
+                return DateTime.TryParse(v, System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.None, out var dt)
+                    ? dt.ToString("yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture)
+                    : null;
+            case "integer":
+                var digits = new string(v.Where(char.IsDigit).ToArray());
+                return digits.Length > 0 ? digits : null;
+            default:
+                return v;
+        }
+    }
+
     //  - If the caller supplied them explicitly, pass them through verbatim.
     //  - Otherwise, when a record id is provided, auto-fetch the document type's default capture
     //    attributes (which carry the real Workday field ids) so a single "Upload" click can file
@@ -1010,7 +1730,9 @@ app.MapPost("/api/capture", async (HttpContext ctx, CaptureRequest req) =>
                                         if (string.Equals(iid, uName, StringComparison.OrdinalIgnoreCase)
                                             || string.Equals(inm, uName, StringComparison.OrdinalIgnoreCase))
                                         {
-                                            o2["value"] = uVal;
+                                            // Only set a value the broker can accept for this field's type.
+                                            var clean = SanitizeAttrValue(uVal, o2["dataType"]?.GetValue<string>());
+                                            if (clean is not null) o2["value"] = clean;
                                         }
                                     }
                                 }
@@ -1146,6 +1868,23 @@ app.MapPost("/api/viewer", async (HttpContext ctx, ViewerRequest req) =>
     try
     {
         using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(60));
+
+        // CFS-brokered systems (e.g. OnBase via CFS) must use the viewer's /#/cfs/ route with the
+        // broker integrationId; the MCP returns the CIC-native /#/documents/ route, which 400s
+        // ("Invalid documentId format") for an OnBase handle. Build the correct URL from config.
+        var activeSystem = await ActiveSystemFriendlyNameAsync(cts.Token);
+        if (!string.IsNullOrEmpty(activeSystem)
+            && viewer.CfsSystems.TryGetValue(activeSystem, out var cfs)
+            && !string.IsNullOrWhiteSpace(cfs.IntegrationId)
+            && !string.IsNullOrWhiteSpace(cfs.Host))
+        {
+            var part = string.IsNullOrWhiteSpace(cfs.LogicalPartId) ? "1" : cfs.LogicalPartId;
+            var cfsUrl = $"{cfs.Host.TrimEnd('/')}/#/cfs/{Uri.EscapeDataString(cfs.IntegrationId)}/" +
+                         $"{Uri.EscapeDataString(req.DocId)}/{Uri.EscapeDataString(part)}" +
+                         $"?envKey={Uri.EscapeDataString(cfs.EnvKey)}";
+            return Results.Json(new { url = cfsUrl, cfs = true });
+        }
+
         var text = await McpJsonRpc.CallToolAsync(httpFactory, mcp, "open_document_in_viewer",
             new { documentId = req.DocId }, log, cts.Token);
         return Results.Json(new { url = McpJsonRpc.ExtractUrl(text), raw = text });
@@ -1602,6 +2341,81 @@ static bool CaptureTextIndicatesFailure(string? text)
 // AgentResponse.output is an array of items: type "message" (assistant text) or
 // type "function_call". We surface the assistant text from output[].content[] where
 // content.type == "output_text".
+// Retries once when the connection itself fails (no response), e.g. a transient Windows TLS/LSA error.
+static async Task<HttpResponseMessage> SendWithConnectRetryAsync(HttpClient http, Func<HttpRequestMessage> build, ILogger log, CancellationToken ct)
+{
+    try { return await http.SendAsync(build(), ct); }
+    catch (HttpRequestException ex) when (ex.StatusCode is null)
+    {
+        log.LogWarning(ex, "Agent Builder connection failed; retrying once");
+        await Task.Delay(TimeSpan.FromSeconds(2), ct);
+        return await http.SendAsync(build(), ct);
+    }
+}
+
+// Pulls a named Task-agent outcome (e.g. solutionMapping) out of an invoke-task response.
+static JsonElement? ExtractNamedOutcome(string json, string name)
+{
+    try
+    {
+        using var doc = JsonDocument.Parse(json);
+        var root = doc.RootElement;
+        if (root.TryGetProperty(name, out var a)) return a.Clone();
+        if (root.TryGetProperty("outcomes", out var o) && o.ValueKind == JsonValueKind.Object
+            && o.TryGetProperty(name, out var b)) return b.Clone();
+        var text = ExtractReply(json);
+        if (!string.IsNullOrEmpty(text) && text.TrimStart().StartsWith("{"))
+        {
+            using var inner = JsonDocument.Parse(text);
+            return inner.RootElement.TryGetProperty(name, out var c) ? c.Clone() : inner.RootElement.Clone();
+        }
+    }
+    catch { }
+    return null;
+}
+
+// Best-effort extraction of a Task agent's structured outcome (the `businessContext` object) from the
+// invoke-task response. The exact shape isn't documented, so try the known candidates in order and
+// return the first JSON object found; the endpoint also returns `raw` so the real shape can be inspected.
+static JsonElement? ExtractTaskOutcome(string json)
+{
+    try
+    {
+        using var doc = JsonDocument.Parse(json);
+        var root = doc.RootElement;
+        // 1) { businessContext: {...} }  or  { outcomes: { businessContext: {...} } }
+        if (root.TryGetProperty("businessContext", out var bc1)) return bc1.Clone();
+        if (root.TryGetProperty("outcomes", out var outc) && outc.ValueKind == JsonValueKind.Object
+            && outc.TryGetProperty("businessContext", out var bc2)) return bc2.Clone();
+        // 2) output[] -> message -> content[] -> output_text holding a JSON string (same as the chat shape).
+        var text = ExtractReply(json);
+        if (!string.IsNullOrEmpty(text) && (text.TrimStart().StartsWith("{") || text.TrimStart().StartsWith("[")))
+        {
+            try
+            {
+                using var inner = JsonDocument.Parse(text);
+                // Agent Builder wraps Task outcomes by name: {"businessContext": {...}}.
+                if (inner.RootElement.ValueKind == JsonValueKind.Object
+                    && inner.RootElement.TryGetProperty("businessContext", out var bc3)) return bc3.Clone();
+                return inner.RootElement.Clone();
+            }
+            catch { }
+        }
+        // 3) choices[0].message.content as a JSON string.
+        if (root.TryGetProperty("choices", out var choices) && choices.ValueKind == JsonValueKind.Array && choices.GetArrayLength() > 0)
+        {
+            var msg = choices[0];
+            if (msg.TryGetProperty("message", out var m) && m.TryGetProperty("content", out var c) && c.ValueKind == JsonValueKind.String)
+            {
+                var s = c.GetString();
+                if (!string.IsNullOrEmpty(s)) { try { using var inner = JsonDocument.Parse(s); return inner.RootElement.Clone(); } catch { } }
+            }
+        }
+    }
+    catch { }
+    return null;
+}
+
 static string ExtractReply(string json)
 {
     try

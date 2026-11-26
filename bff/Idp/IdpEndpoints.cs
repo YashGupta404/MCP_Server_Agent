@@ -82,6 +82,12 @@ static class IdpEndpoints
 
             var publicBase = idp.PublicBaseUrl.TrimEnd('/');
             var boType = req.BusinessObjectType;
+            // Workday worker records render their capture fields from get_capture_default_attributes
+            // (ids like hcmisbeemp_firstName); CIC types come from the solution config. The upload form
+            // uses the Workday source for worker records, so IDP must extract against the SAME source or
+            // the extracted ids won't map onto the form fields and nothing fills.
+            var workday = string.Equals(boType, "employee", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(boType, "worker", StringComparison.OrdinalIgnoreCase);
             var stagedIds = new ConcurrentBag<string>();
             // Classify (and extract metadata for) files CONCURRENTLY (capped) so a bulk drop isn't paced one-at-a-time.
             const int maxConcurrency = 6;
@@ -95,7 +101,9 @@ static class IdpEndpoints
                 try
                 {
                     using var fcts = new CancellationTokenSource(TimeSpan.FromSeconds(30));
-                    var arr = await McpJsonRpc.GetCicDocTypeFieldsAsync(httpFactory, mcp, dt, boType, log, fcts.Token);
+                    var arr = workday
+                        ? await McpJsonRpc.GetWorkdayDocTypeFieldsAsync(httpFactory, mcp, dt, string.IsNullOrWhiteSpace(boType) ? "employee" : boType!, null, log, fcts.Token)
+                        : await McpJsonRpc.GetCicDocTypeFieldsAsync(httpFactory, mcp, dt, boType, log, fcts.Token);
                     foreach (var o in arr)
                     {
                         var jn = JsonNode.Parse(JsonSerializer.Serialize(o));
@@ -111,8 +119,11 @@ static class IdpEndpoints
             }));
 
             // Which of the active system's types can actually be filed on THIS record (for upload gating).
+            // Workday worker records capture into any of the list_document_types, and the CIC solution-config
+            // lookup returns an empty set for them (which would wrongly mark every type non-uploadable), so
+            // only gate on configured types for CIC records.
             HashSet<string>? configuredTypes = null;
-            if (!string.IsNullOrWhiteSpace(boType))
+            if (!workday && !string.IsNullOrWhiteSpace(boType))
             {
                 using var cfgCts = new CancellationTokenSource(TimeSpan.FromSeconds(30));
                 configuredTypes = await McpJsonRpc.GetConfiguredCicContentTypesAsync(httpFactory, mcp, boType, log, cfgCts.Token);
@@ -203,7 +214,9 @@ static class IdpEndpoints
                             finally { gate.Release(); }
                         }
                     }
-                    return (object)new { name = s.Name, docType, confidence = Math.Round(confidence, 4), reviewRequired, error, fields, uploadable = configuredTypes == null || (docType != null && configuredTypes.Contains(docType)) };
+                    // An EMPTY configured set means the config read failed (e.g. OpenSearch 503) - don't gate
+                    // on it, otherwise every type is wrongly marked non-uploadable.
+                    return (object)new { name = s.Name, docType, confidence = Math.Round(confidence, 4), reviewRequired, error, fields, uploadable = configuredTypes == null || configuredTypes.Count == 0 || (docType != null && configuredTypes.Contains(docType)) };
                 });
                 results = await Task.WhenAll(tasks);
             }

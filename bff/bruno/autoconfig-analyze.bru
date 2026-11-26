@@ -1,0 +1,39 @@
+meta {
+  name: Auto-map analyze
+  type: http
+  seq: 1
+}
+
+post {
+  url: https://localhost:5010/api/autoconfig/analyze
+  body: json
+  auth: none
+}
+
+headers {
+  Content-Type: application/json
+  X-BFF-Session: {{session}}
+}
+
+body:json {
+  {
+    "attachments": [
+      {
+        "name": "change-request-form.png",
+        "mime": "image/png",
+        "dataBase64": "{{fileBase64}}"
+      }
+    ],
+    "businessObjectType": "change_request",
+    "businessObjectId": "CHG0012345"
+  }
+}
+
+docs {
+  Set two Bruno variables before running:
+    session     = the X-BFF-Session value from a signed-in plugin (DevTools > Network > any /api call > Request Headers)
+    fileBase64  = base64 of the sample file:
+      PowerShell: [Convert]::ToBase64String([IO.File]::ReadAllBytes("C:\path\to\change-request-form.png")) | Set-Clipboard
+  Also disable SSL verification in Bruno (self-signed dev cert on https://localhost:5010):
+    Bruno > Preferences > turn OFF "SSL/TLS Certificate Verification".
+}

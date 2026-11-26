@@ -10,4 +10,8 @@ export interface RecordContext {
   needsResolve?: boolean;
   resolveQuery?: string;
   notAuthorized?: boolean;
+  // Workday worker-page fields (in-progress feature; present so the documents view type-checks).
+  employeeId?: string;
+  managerName?: string;
+  probing?: boolean;
 }
